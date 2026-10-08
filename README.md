@@ -52,8 +52,11 @@ and `ubi2`.
 - The recovery partition is exactly 6291456 bytes. `assert-max-image-size`
   deletes the image if the build goes over that. The image that fits keeps
   only `en.xml` and `es.xml` in the ramdisk and leaves `sbin/sgdisk` out.
-- Wipes of `system`, `data` and `cache` are disabled. This TWRP cannot format
-  UBIFS, and a wipe would destroy the volume.
+- Restore of `system`, `data` and `cache` is allowed. `canbewiped=1` lets
+  the restore empty the mounted UBIFS and extract the tar. It does not run
+  `ubiformat`. The wipe screen and factory reset stay off
+  (`wipeingui=0`, `wipeduringfactoryreset=0`). The empty-the-volume path is
+  `Wipe_UBIFS()` in the recovery binary, not in this device tree.
 - Backups of those three partitions are file tars (`*.ubifs.win`). Boot is a
   raw MTD dump. Store the backup on the micro SD; `/data` is too small.
 - `TW_NO_REBOOT_BOOTLOADER := true` because this phone does not expose
