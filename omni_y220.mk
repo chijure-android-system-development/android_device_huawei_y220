@@ -1,0 +1,7 @@
+$(call inherit-product, device/huawei/y220/device.mk)
+
+PRODUCT_NAME := omni_y220
+PRODUCT_DEVICE := y220
+PRODUCT_BRAND := HUAWEI
+PRODUCT_MODEL := Y220-U05
+PRODUCT_MANUFACTURER := HUAWEI

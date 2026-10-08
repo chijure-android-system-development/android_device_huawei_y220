@@ -1,0 +1,26 @@
+on fs
+    # Mismo orden que el boot stock: mtd14 system, mtd16 userdata, mtd15 cache.
+    exec /sbin/ubiattach 14
+    exec /sbin/ubiattach 16
+    exec /sbin/ubiattach 15
+    mkdir /external_sd 0755 root root
+
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 12d1
+    write /sys/class/android_usb/android0/idProduct 2351
+    write /sys/class/android_usb/android0/functions adb
+    write /sys/class/android_usb/android0/iManufacturer HUAWEI
+    write /sys/class/android_usb/android0/iProduct Y220-U05
+    write /sys/class/android_usb/android0/iSerial ${ro.serialno}
+
+on boot
+    setprop persist.service.adb.enable 1
+    setprop service.adb.root 1
+    setprop sys.usb.config adb
+
+on property:sys.usb.config=adb
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/functions adb
+    write /sys/class/android_usb/android0/enable 1
+    start adbd
+    setprop sys.usb.state adb

@@ -1,0 +1,10 @@
+# Y220-U05 C482B206SP05. system/data/cache son UBIFS.
+# ubiattach en init los deja como ubi0/1/2, el mismo orden que el boot stock.
+# Sin wipe: TWRP no sabe formatear UBIFS y un wipe reharía la partición.
+
+/system       ubifs    /dev/ubi0_0              flags=display="System";backup=1;ignoreblkid;canbewiped=0;wipeduringfactoryreset=0;wipeingui=0
+/data         ubifs    /dev/ubi1_0              flags=display="Data";backup=1;ignoreblkid;canbewiped=0;wipeduringfactoryreset=0;wipeingui=0
+/cache        ubifs    /dev/ubi2_0              flags=display="Cache";backup=1;ignoreblkid;canbewiped=0;wipeduringfactoryreset=0;wipeingui=0
+/boot         mtd      boot                     flags=display="Boot";backup=1;flashimg=1
+/recovery     mtd      recovery                 flags=display="Recovery";backup=1;flashimg=1
+/external_sd  vfat     /dev/block/mmcblk0p1     flags=display="MicroSD";storage;removable
