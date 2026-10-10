@@ -12,7 +12,11 @@ PRODUCT_COPY_FILES += \
 
 PRODUCT_COPY_FILES += \
     device/huawei/y220/init.rc:root/init.rc \
-    device/huawei/y220/y220-wipe-system.sh:system/bin/y220-wipe-system.sh
+    device/huawei/y220/y220-wipe-system.sh:system/bin/y220-wipe-system.sh \
+    device/huawei/y220/init.d/07wmt:system/etc/init.d/07wmt \
+    device/huawei/y220/init.local.rc:system/etc/init.local.rc \
+    device/huawei/y220/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \
+    device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh
 
 PRODUCT_COPY_FILES += \
     frameworks/base/data/etc/handheld_core_hardware.xml:system/etc/permissions/handheld_core_hardware.xml \
@@ -28,7 +32,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
 # ro.product.board is y220, so hw_get_module loads lights.y220.so.
 # Without it LightsService never writes lcd-backlight and the slider does nothing.
 PRODUCT_PACKAGES += \
-    lights.y220
+    lights.y220 \
+    libaudio
 
 # Same place as the Y210 tree. This is the AOSP base (Settings, Phone,
 # SystemUI, framework jars). Without it the zip only has the CM extras.

@@ -48,10 +48,15 @@ BOARD_HAS_NO_MISC_PARTITION := true
 
 BOARD_HAVE_BLUETOOTH := true
 
+# libpalwlan_mtk.so needs __xlog_buf_printf from liblog. The body is
+# device/huawei/y220/libxlog and is pulled into the shared liblog only.
+BOARD_LIBLOG_EXTRA_STATIC := libxlog
+
 # Gingerbread audioflinger links libaudio. The MSM7k HAL is not built for
-# this platform. ALSA is the generic HAL in this tree so the image links.
-# It is not the MediaTek audio path.
+# this platform. ALSA has no card here (CONFIG_SOUND is off). Playback is
+# /dev/eac, so the device tree provides libaudio and the ALSA one is skipped.
 BOARD_USES_ALSA_AUDIO := true
+TARGET_PROVIDES_LIBAUDIO := true
 
 # Combo Wi-Fi. The module on the phone is wlan_mt6582.ko (WEXT).
 BOARD_WPA_SUPPLICANT_DRIVER := WEXT

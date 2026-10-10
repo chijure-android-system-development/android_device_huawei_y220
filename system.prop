@@ -2,3 +2,4 @@
 # 320x480 is 160 dpi; the mdpi CM7 bootanimation matches that.
 qemu.hw.mainkeys=0
 ro.sf.lcd_density=160
+wifi.interface=wlan0

@@ -1,0 +1,26 @@
+on property:wlan.driver.status=ok
+    exec /system/bin/sh /system/etc/wifi/wmt-wifi-on.sh
+
+service wpa_supplicant /system/bin/wpa_supplicant -Dwext -iwlan0 -c/data/misc/wifi/wpa_supplicant.conf
+    socket wpa_wlan0 dgram 660 wifi wifi
+    disabled
+    oneshot
+
+service dhcpcd_wlan0 /system/bin/dhcpcd -ABKL
+    disabled
+    oneshot
+
+service iprenew_wlan0 /system/bin/dhcpcd -n
+    disabled
+    oneshot
+
+on property:sys.boot_completed=1
+    start mtkbt
+
+service mtkbt /system/bin/mtkbt
+    socket bt.int.adp dgram 660 bluetooth net_bt
+    socket bt.a2dp.stream dgram 660 bluetooth net_bt
+    user bluetooth
+    group net_bt bluetooth net_bt_admin sdcard_rw inet net_admin net_raw
+    disabled
+    oneshot

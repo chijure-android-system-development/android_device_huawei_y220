@@ -1,0 +1,25 @@
+#!/system/bin/sh
+# Combo WiFi is WMT + cfg80211 + wlan. The HAL only insmods wlan_mt6582.ko.
+MOD=/system/lib/modules
+insmod $MOD/mtk_stp_wmt.ko
+insmod $MOD/mtk_stp_bt.ko
+insmod $MOD/mtk_wmt_wifi.ko
+insmod $MOD/cfg80211.ko
+[ -c /dev/stpbt ] || mknod /dev/stpbt c 192 0
+chown bluetooth:radio /dev/stpbt
+chmod 660 /dev/stpbt
+mkdir -p /data/@btmtk
+chown bluetooth:net_bt /data/@btmtk
+chmod 770 /data/@btmtk
+[ -c /dev/stpwmt ] || mknod /dev/stpwmt c 190 0
+[ -c /dev/wmtWifi ] || mknod /dev/wmtWifi c 153 0
+chmod 666 /dev/stpwmt /dev/wmtWifi
+/system/xbin/nohup /system/bin/6620_launcher -m 3 -p /system/etc/firmware/ >/dev/null 2>&1 &
+sleep 1
+insmod $MOD/wlan_mt6582.ko
+echo 1 > /dev/wmtWifi
+mkdir -p /data/misc/wifi/sockets
+chown wifi:wifi /data/misc/wifi /data/misc/wifi/sockets
+chmod 770 /data/misc/wifi /data/misc/wifi/sockets
+setprop wifi.interface wlan0
+setprop wlan.driver.status ok
