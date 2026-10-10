@@ -1,0 +1,13 @@
+diff --git a/ALSAMixer.cpp b/ALSAMixer.cpp
+index 4b5334d..dab1390 100644
+--- a/ALSAMixer.cpp
++++ b/ALSAMixer.cpp
+@@ -168,6 +168,8 @@ ALSAMixer::ALSAMixer()
+     snd_mixer_selem_id_alloca(&sid);
+ 
+     for (int i = 0; i <= SND_PCM_STREAM_LAST; i++) {
++        if (mMixer[i] == NULL)
++            continue;
+ 
+         mixer_info_t *info = mixerMasterProp[i].mInfo = new mixer_info_t;
+ 

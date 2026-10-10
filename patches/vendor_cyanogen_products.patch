@@ -1,0 +1,11 @@
+diff --git a/products/AndroidProducts.mk b/products/AndroidProducts.mk
+index d8725a9..cfdd37b 100644
+--- a/products/AndroidProducts.mk
++++ b/products/AndroidProducts.mk
+@@ -79,5 +79,6 @@ PRODUCT_MAKEFILES := \
+     $(LOCAL_DIR)/cyanogen_z71.mk \
+     $(LOCAL_DIR)/cyanogen_zeppelin.mk \
+     $(LOCAL_DIR)/cyanogen_zero.mk \
++    $(LOCAL_DIR)/cyanogen_y220.mk \
+     $(LOCAL_DIR)/cyanogen_zeus.mk \
+     $(LOCAL_DIR)/cyanogen_zeusc.mk

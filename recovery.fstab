@@ -1,0 +1,10 @@
+# CM7 recovery fstab. The phone's real recovery is TWRP.
+# system/data/cache are UBIFS. ubi0=system, ubi1=data, ubi2=cache,
+# attached in stock boot order (mtd14, mtd16, mtd15).
+
+/boot       mtd       boot
+/cache      ubifs     /dev/ubi2_0
+/data       ubifs     /dev/ubi1_0
+/recovery   mtd       recovery
+/sdcard     vfat      /dev/block/mmcblk0p1
+/system     ubifs     /dev/ubi0_0
