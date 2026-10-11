@@ -47,6 +47,9 @@ BOARD_CACHEIMAGE_PARTITION_SIZE := 69206016
 BOARD_HAS_NO_MISC_PARTITION := true
 
 BOARD_HAVE_BLUETOOTH := true
+# Settings enable talks to mtkbt on bt.int.adp, not bluetoothd.
+BOARD_HAVE_BLUETOOTH_MTK := true
+BOARD_BLUETOOTH_MTK_INCLUDES := device/huawei/y220/libbt_mtk_gap
 
 # libpalwlan_mtk.so needs __xlog_buf_printf from liblog. The body is
 # device/huawei/y220/libxlog and is pulled into the shared liblog only.
@@ -64,6 +67,13 @@ TARGET_PROVIDES_LIBAUDIO := true
 # Combo Wi-Fi. The module on the phone is wlan_mt6582.ko (WEXT).
 BOARD_WPA_SUPPLICANT_DRIVER := WEXT
 WPA_SUPPLICANT_VERSION := VER_0_6_X
+# SIOCSIWPRIV on this driver sets the country code. The Android combo
+# scan uses that ioctl, so it never sends SIOCSIWSCAN.
+BOARD_WEXT_NO_COMBO_SCAN := true
+# IFF_UP on DRIVER START, UI scans stay out of WPA_IDLE, SCAN_RESULTS
+# re-reads the driver. Same glue as other MT6572 ports on wlan_mt6582.ko.
+BOARD_WPA_SUPPLICANT_PRIVATE_LIB := libwpa_mtk_wext
+BOARD_WPA_SUPPLICANT_PRIVATE_INCLUDES := device/huawei/y220/libwpa_mtk_wext
 WIFI_DRIVER_MODULE_PATH := /system/lib/modules/wlan_mt6582.ko
 WIFI_DRIVER_MODULE_NAME := wlan_mt6582
 WIFI_DRIVER_MODULE_ARG := ""

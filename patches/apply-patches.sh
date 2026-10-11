@@ -60,3 +60,12 @@ apply system/core system_core_liblog_extra.patch
 
 # Wi-Fi HAL — espera a wlan0 cuando existe /dev/wmtWifi.
 apply hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch
+
+# Settings scan: DORMANT sin asociación no debe bajar wlan0.
+apply frameworks/base frameworks_base_wifi_dormant.patch
+
+# Settings BT: POWERON por el socket de mtkbt. La trama está en libbt_mtk_gap.
+apply frameworks/base frameworks_base_bt_mtk_gap.patch
+
+# wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
+apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch

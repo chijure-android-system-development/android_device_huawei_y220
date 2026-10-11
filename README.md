@@ -60,6 +60,13 @@ bash device/huawei/y220/patches/revert-patches.sh
 - `libhardware_legacy_wifi_wmt.patch`: si existe `/dev/wmtWifi`, el HAL
   espera hasta 4 s a que aparezca `wlan0` después de marcar el driver
   como cargado. El `insmod` de `wlan_mt6582.ko` no crea la interfaz.
+- `external_wpa_supplicant_6_scan_idle.patch`: solo los puntos de
+  llamada. La política está en `libwpa_mtk_wext`.
+- `frameworks_base_wifi_dormant.patch`: un estado DORMANT sin asociación
+  no baja `wlan0`.
+- `frameworks_base_bt_mtk_gap.patch`: el enable de Ajustes llama a
+  `libbt_mtk_gap` en vez de `bluetoothd`. Ver la nota de Bluetooth. No
+  prenderlo.
 
 ## Compilación
 
@@ -196,8 +203,58 @@ el compose sigue. `ro.opengles.version=131072` está en `system.prop`
 (OpenGL ES 2.0, igual que el stock). El `build.prop` del teléfono no se
 regeneró con ese valor.
 
-El combo Wi-Fi/BT no pasó por un cambio de kernel. `07wmt` carga
-`mtk_stp_wmt`, `mtk_stp_bt`, `mtk_wmt_wifi`, `cfg80211`, `wlan_mt6582` y
-deja `6620_launcher -m 3` vivo. `mtkbt` arranca en
-`sys.boot_completed=1`. El toggle de Bluetooth en Ajustes sigue siendo el
-camino BlueZ de CM7, no el de `mtkbt`.
+El combo no pasó por un cambio de kernel. `07wmt` carga `mtk_stp_wmt`,
+`mtk_stp_bt`, `mtk_wmt_wifi`, `cfg80211`, `wlan_mt6582` y deja
+`6620_launcher -m 3` vivo. `mtkbt` arranca en `sys.boot_completed=1`.
+
+## Wi-Fi
+
+En `gl_wext.c` de este driver, `SIOCSIWPRIV` escribe el código de país.
+El combo scan de Android manda ese ioctl con la cabecera `CSCAN`, así que
+el scan real (`SIOCSIWSCAN`) no sale. `BOARD_WEXT_NO_COMBO_SCAN` lo evita.
+`libwpa_mtk_wext` sube `IFF_UP` en `DRIVER START`, saca la UI de
+`WPA_IDLE` y filtra el BSS falso `NVRAM WARNING`. El país `EU` es de este
+equipo (canales 1-13); otro puerto cambia las dos letras del `Android.mk`.
+
+`/data/misc/dhcp` no existía y `dhcpcd` no arrancaba. El directorio ya
+está en el teléfono (`0770 dhcp:dhcp`). `init.rc` lo crea, pero eso solo
+entra con una imagen de boot nueva. No se ha flasheado.
+
+Ajustes lista y asocia. No escribir la MAC ni el país en NVRAM: la MAC de
+Wi-Fi sigue saliendo distinta en cada boot.
+
+## Bluetooth
+
+No prenderlo desde Ajustes. El toggle deja `system_server` en un bucle.
+
+La dirección de fábrica ya está en `mtd2` (registro `BT_Addr`, 30 bytes,
+no es la de fábrica `00:00:46:65:72:01`). Se copió, sin escribir la
+partición, a los dos archivos que el stack lee:
+
+- `/data/BT_Addr`, `0777`, `root:root`. Lo abre `BT_open` en
+  `stp_chrdev_bt.c`.
+- `/data/nvram/APCFG/APRDEB/BT_Addr`, `0666`, `root:bluetooth`. Lo lee
+  `libbluetooth_mtk`.
+
+`nvram_daemon` no está corriendo. No arrancarlo: si el archivo no está,
+puede volver a grabar el valor por defecto en la partición.
+
+`libbt_mtk_gap` manda `MSG_ID_BT_POWERON_REQ` (100) al socket
+`/dev/socket/bt.int.adp` y espera `MSG_ID_BT_POWERON_CNF` (145). Ajustes,
+si la respuesta es 0 o 1, salta el event loop de BlueZ y marca el estado
+encendido. En el teléfono la prueba fue esta:
+
+- `mtkbt`: `Read Nvram data fails` y `mtk_bt_enable: ret=-1`.
+- Igual contestó `POWERON_CNF` con `result=0`. El cliente lo tomó como
+  éxito (`BTBM_ADP_SUCCESS` también es 0).
+- `initProfileState` pidió las propiedades del adaptador. No hay path de
+  BlueZ. `dbus_message_new_method_call` aborta el proceso (`SIGSEGV`,
+  `deadbaad`) y Zygote vuelve a levantar la interfaz. En el arranque,
+  `SystemServer` lee `bluetooth_on` y llama a `enable()` otra vez.
+- dmesg no tiene panic. El cierre es `BT_close`, `WMT turn off BT OK` y
+  el PMIC de BT abajo.
+
+`bluetooth_on` se dejó en 0. El binario que está en el teléfono es el que
+hace ese abort. El parche ya trae la guarda del path nulo, pero esa
+revisión no se instaló: el rebuild no llegó a linkar. Aunque se instale,
+`result=0` no se puede aceptar mientras `mtk_bt_enable` devuelva -1.

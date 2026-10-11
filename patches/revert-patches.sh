@@ -16,6 +16,9 @@ revert() {
     (cd "$CM7_ROOT/$project" && git apply --reverse "$PATCHES_DIR/$patch")
 }
 
+revert external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
+revert frameworks/base frameworks_base_bt_mtk_gap.patch
+revert frameworks/base frameworks_base_wifi_dormant.patch
 revert hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch
 revert system/core system_core_liblog_extra.patch
 revert frameworks/base frameworks_base_libutils_tracer.patch

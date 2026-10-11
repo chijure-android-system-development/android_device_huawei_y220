@@ -1,0 +1,177 @@
+diff --git a/wpa_supplicant/Android.mk b/wpa_supplicant/Android.mk
+index b767907..76b6bbf 100644
+--- a/wpa_supplicant/Android.mk
++++ b/wpa_supplicant/Android.mk
+@@ -36,6 +36,10 @@ ifeq ($(BOARD_WEXT_NO_COMBO_SCAN),true)
+ L_CFLAGS += -DWEXT_NO_COMBO_SCAN
+ endif
+ 
++ifneq ($(BOARD_WPA_SUPPLICANT_PRIVATE_LIB),)
++L_CFLAGS += -DCONFIG_WPA_PRIVATE_LIB
++endif
++
+ # To ignore possible wrong network configurations
+ L_CFLAGS += -DWPA_IGNORE_CONFIG_ERRORS
+ 
+@@ -63,6 +67,9 @@ INCLUDES += $(LOCAL_PATH)/src/utils
+ INCLUDES += $(LOCAL_PATH)/src/wps
+ INCLUDES += external/openssl/include
+ INCLUDES += frameworks/base/cmds/keystore
++ifneq ($(BOARD_WPA_SUPPLICANT_PRIVATE_INCLUDES),)
++INCLUDES += $(BOARD_WPA_SUPPLICANT_PRIVATE_INCLUDES)
++endif
+ 
+ OBJS = config.c
+ OBJS += src/utils/common.c
+diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
+index 23b6dbd..33ea509 100644
+--- a/wpa_supplicant/ctrl_iface.c
++++ b/wpa_supplicant/ctrl_iface.c
+@@ -30,6 +30,9 @@
+ #include "ieee802_11_defs.h"
+ #include "wps_supplicant.h"
+ #include "wps/wps.h"
++#ifdef CONFIG_WPA_PRIVATE_LIB
++#include "wpa_private.h"
++#endif
+ 
+ static int wpa_supplicant_global_iface_list(struct wpa_global *global,
+ 					    char *buf, int len);
+@@ -814,9 +817,17 @@ static int wpa_supplicant_ctrl_iface_scan_results(
+ 	int ret;
+ 	size_t i;
+ 
++#ifdef CONFIG_WPA_PRIVATE_LIB
++	if (wpa_private_rescan_on_query() || wpa_s->scan_res == NULL) {
++		if (wpa_supplicant_get_scan_results(wpa_s) < 0 &&
++		    wpa_s->scan_res == NULL)
++			return 0;
++	}
++#else
+ 	if (wpa_s->scan_res == NULL &&
+ 	    wpa_supplicant_get_scan_results(wpa_s) < 0)
+ 		return 0;
++#endif
+ 	if (wpa_s->scan_res == NULL)
+ 		return 0;
+ 
+@@ -829,7 +840,18 @@ static int wpa_supplicant_ctrl_iface_scan_results(
+ 	pos += ret;
+ 
+ 	for (i = 0; i < wpa_s->scan_res->num; i++) {
++		const u8 *ssid_ie;
++
+ 		res = wpa_s->scan_res->res[i];
++#ifdef CONFIG_WPA_PRIVATE_LIB
++		ssid_ie = wpa_scan_get_ie(res, WLAN_EID_SSID);
++		if (wpa_private_hide_scan_bss(res->bssid,
++					      ssid_ie ? ssid_ie + 2 : NULL,
++					      ssid_ie ? ssid_ie[1] : 0))
++			continue;
++#else
++		ssid_ie = NULL;
++#endif
+ 		ret = wpa_supplicant_ctrl_iface_scan_result(res, pos,
+ 							    end - pos);
+ 		if (ret < 0 || ret >= end - pos)
+@@ -1764,6 +1786,9 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+ #ifdef ANDROID
+ 		if (!wpa_s->scanning && ((wpa_s->wpa_state <= WPA_SCANNING) ||
+ 			(wpa_s->wpa_state >= WPA_COMPLETED))) {
++#endif
++#ifdef CONFIG_WPA_PRIVATE_LIB
++			wpa_private_before_scan(&wpa_s->disconnected);
+ #endif
+ 			wpa_s->scan_req = 2;
+ 			wpa_supplicant_req_scan(wpa_s, 0, 0);
+diff --git a/wpa_supplicant/events.c b/wpa_supplicant/events.c
+index 74887e6..1b29ca0 100644
+--- a/wpa_supplicant/events.c
++++ b/wpa_supplicant/events.c
+@@ -32,6 +32,9 @@
+ #include "blacklist.h"
+ #include "wpas_glue.h"
+ #include "wps_supplicant.h"
++#ifdef CONFIG_WPA_PRIVATE_LIB
++#include "wpa_private.h"
++#endif
+ 
+ 
+ static int wpa_supplicant_select_config(struct wpa_supplicant *wpa_s)
+@@ -655,7 +658,13 @@ static void wpa_supplicant_event_scan_results(struct wpa_supplicant *wpa_s)
+ 	if ((wpa_s->conf->ap_scan == 2 && !wpas_wps_searching(wpa_s)))
+ 		return;
+ 
++#ifdef CONFIG_WPA_PRIVATE_LIB
++	if (wpa_s->disconnected &&
++	    wpa_private_report_idle(wpa_s->current_ssid != NULL,
++				    !is_zero_ether_addr(wpa_s->bssid))) {
++#else
+ 	if (wpa_s->disconnected) {
++#endif
+ 		wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
+ 		return;
+ 	}
+diff --git a/wpa_supplicant/scan.c b/wpa_supplicant/scan.c
+index c4da038..6afec1f 100644
+--- a/wpa_supplicant/scan.c
++++ b/wpa_supplicant/scan.c
+@@ -21,6 +21,9 @@
+ #include "mlme.h"
+ #include "wps_supplicant.h"
+ #include "ctrl_iface_dbus.h"
++#ifdef CONFIG_WPA_PRIVATE_LIB
++#include "wpa_private.h"
++#endif
+ 
+ 
+ static void wpa_supplicant_gen_assoc_event(struct wpa_supplicant *wpa_s)
+@@ -96,6 +99,12 @@ static void wpa_supplicant_scan(void *eloop_ctx, void *timeout_ctx)
+ 		wpa_s->scan_req, wpa_s->conf->ap_scan);
+ 
+ 	if (wpa_s->disconnected && !wpa_s->scan_req) {
++#ifdef CONFIG_WPA_PRIVATE_LIB
++		if (!wpa_private_report_idle(wpa_s->current_ssid != NULL,
++					     !is_zero_ether_addr(wpa_s->bssid)))
++			wpa_supplicant_set_state(wpa_s, WPA_INACTIVE);
++		else
++#endif
+ 		wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
+ 		return;
+ 	}
+diff --git a/wpa_supplicant/src/drivers/driver_wext.c b/wpa_supplicant/src/drivers/driver_wext.c
+index d2ef4e7..506134c 100644
+--- a/wpa_supplicant/src/drivers/driver_wext.c
++++ b/wpa_supplicant/src/drivers/driver_wext.c
+@@ -34,6 +34,9 @@
+ #include "wpa_ctrl.h"
+ #include "wpa_supplicant_i.h"
+ #include "config_ssid.h"
++#ifdef CONFIG_WPA_PRIVATE_LIB
++#include "wpa_private.h"
++#endif
+ 
+ 
+ static int wpa_driver_wext_flush_pmkid(void *priv);
+@@ -2556,6 +2559,11 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
+ 	iwr.u.data.pointer = buf;
+ 	iwr.u.data.length = buf_len;
+ 
++#ifdef CONFIG_WPA_PRIVATE_LIB
++	if (!wpa_private_do_priv_ioctl(cmd))
++		ret = 0;
++	else
++#endif
+ 	ret = ioctl(drv->ioctl_sock, SIOCSIWPRIV, &iwr);
+ 
+ 	if (ret < 0) {
+@@ -2577,6 +2585,9 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
+ 		} else if (os_strcasecmp(cmd, "START") == 0) {
+ 			drv->driver_is_started = TRUE;
+ 			/* os_sleep(0, WPA_DRIVER_WEXT_WAIT_US); */
++#ifdef CONFIG_WPA_PRIVATE_LIB
++			wpa_private_on_driver_start(drv->ifname);
++#endif
+ 			wpa_msg(drv->ctx, MSG_INFO, WPA_EVENT_DRIVER_STATE "STARTED");
+ 		} else if (os_strcasecmp(cmd, "STOP") == 0) {
+ 			drv->driver_is_started = FALSE;
