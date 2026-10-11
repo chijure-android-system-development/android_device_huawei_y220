@@ -51,3 +51,12 @@ apply hardware/libhardware libhardware_gralloc_bgra.patch
 
 # PixelFlinger — config EGL con NATIVE_VISUAL_ID BGRA_8888.
 apply frameworks/base frameworks_base_egl_bgra.patch
+
+# libutils — android::Tracer, que libMali.so resuelve en libutils.
+apply frameworks/base frameworks_base_libutils_tracer.patch
+
+# liblog — el .so compartido absorbe la estática del device tree (libxlog).
+apply system/core system_core_liblog_extra.patch
+
+# Wi-Fi HAL — espera a wlan0 cuando existe /dev/wmtWifi.
+apply hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch

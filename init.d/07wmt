@@ -1,4 +1,7 @@
 #!/system/bin/sh
+# Mali-400 nodes come up root:root 600. system_server opens both.
+chmod 666 /dev/mali /dev/ump
+chown system:graphics /dev/mali /dev/ump
 # Combo WiFi is WMT + cfg80211 + wlan. The HAL only insmods wlan_mt6582.ko.
 MOD=/system/lib/modules
 insmod $MOD/mtk_stp_wmt.ko

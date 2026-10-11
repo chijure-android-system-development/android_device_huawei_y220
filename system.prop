@@ -3,3 +3,4 @@
 qemu.hw.mainkeys=0
 ro.sf.lcd_density=160
 wifi.interface=wlan0
+ro.opengles.version=131072

@@ -16,6 +16,9 @@ revert() {
     (cd "$CM7_ROOT/$project" && git apply --reverse "$PATCHES_DIR/$patch")
 }
 
+revert hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch
+revert system/core system_core_liblog_extra.patch
+revert frameworks/base frameworks_base_libutils_tracer.patch
 revert frameworks/base frameworks_base_egl_bgra.patch
 revert hardware/libhardware libhardware_gralloc_bgra.patch
 revert hardware/alsa_sound alsa_sound_null_mixer.patch

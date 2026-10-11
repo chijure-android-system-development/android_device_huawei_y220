@@ -50,6 +50,16 @@ bash device/huawei/y220/patches/revert-patches.sh
   y `bacon` no sale. El script edify queda `format("ubifs", "MTD", ...)`,
   que el recovery de Gingerbread no sabe ejecutar. No convierte el
   `system.img` a UBIFS ni formatea el NAND.
+- `frameworks_base_libutils_tracer.patch`: `libutils` compila
+  `BOARD_LIBUTILS_EXTRA_SRC`. El cuerpo es `libutils/Tracer.cpp` de este
+  árbol. `libMali.so` necesita `android::Tracer::init` y CM7 no lo tiene.
+  El stub deja el tag en 0, así que no escribe atrace.
+- `system_core_liblog_extra.patch`: el `liblog` compartido hace
+  whole-static de `BOARD_LIBLOG_EXTRA_STATIC` (`libxlog`).
+  `libpalwlan_mtk.so` resuelve `__xlog_buf_printf` ahí.
+- `libhardware_legacy_wifi_wmt.patch`: si existe `/dev/wmtWifi`, el HAL
+  espera hasta 4 s a que aparezca `wlan0` después de marcar el driver
+  como cargado. El `insmod` de `wlan_mt6582.ko` no crea la interfaz.
 
 ## Compilación
 
@@ -83,7 +93,8 @@ escribe. Ninguno se flasheó. El rollback sigue siendo el backup de TWRP.
 (256 MB, `ro.build.version.incremental=C482B206SP05`, 12 ene 2014). El árbol
 `stock-C482B206SP05/system` es el mismo release pero incompleto: no tiene
 `lib/hw` ni `lib/egl` (281 `.so` contra 295). `extract-files.py` sigue
-leyendo ese dump incompleto. El vendor del árbol no trae estos HAL.
+leyendo ese dump incompleto. `gralloc.mt6572.so` y los EGL de Mali se
+copiaron después desde `system.ubifs`, no desde ese dump.
 
 `lib/hw`:
 
@@ -122,19 +133,25 @@ Deja 292 archivos (46 MB) en `vendor/huawei/y220/proprietary` y la lista en
 `proprietary-files.txt`. `device_y220.mk` hereda `y220-vendor.mk`, así que el
 próximo `bacon` los copia a `system/`. No se flasheó nada.
 
-Entran GPU (`libMali.so`, `libUMP.so`), RIL (`mtk-ril.so`, `librilmtk.so`,
-`rild`, `ccci_fsd`, `ccci_mdinit`), cámara, OMX, audio MTK, sensores, NVRam,
-`etc/firmware` (incluido `modem.img`) y los `.ko` de stock. No entran las
-apps de Google ni el odex de Settings/Phone.
+Entran GPU (`libMali.so`, `libUMP.so`, `lib/egl/libEGL_mali.so`,
+`libGLESv1_CM_mali.so`, `libGLESv2_mali.so`, `lib/hw/gralloc.mt6572.so`),
+RIL (`mtk-ril.so`, `librilmtk.so`, `rild`, `ccci_fsd`, `ccci_mdinit`),
+cámara, OMX, audio MTK, sensores, NVRam, `etc/firmware` (incluido
+`modem.img`) y los `.ko` reconstruidos contra el kernel del teléfono.
+No entran las apps de Google ni el odex de Settings/Phone.
 
-Esos HAL y los EGL de Mali sí están en `system.ubifs`. Este vendor no
-los copió. Los jar
-`com.mediatek.framework.jar` y `mediatek-common.jar` son stubs de 4 KB; el
-código está en el `.odex`, atado al framework de stock, y no carga en CM7.
+`egl.cfg` no es un blob: vive en este device tree (`0 0 android`,
+`0 1 mali`) y se copia a `/system/lib/egl/egl.cfg`. Sin ese archivo el
+loader de Gingerbread se queda en `libGLES_android.so`.
 
-`lib/modules/wlan_mt6582.ko` de este vendor pesa 359972 bytes. El que está
-en el teléfono es el recompilado (708120 bytes) que asocia a WPA2. No
-reemplazar el del teléfono con este.
+Los jar `com.mediatek.framework.jar` y `mediatek-common.jar` son stubs de
+4 KB; el código está en el `.odex`, atado al framework de stock, y no
+carga en CM7.
+
+`lib/modules/wlan_mt6582.ko` de este vendor pesa 838824 bytes y
+`cfg80211.ko` 195536. Son los reconstruidos que cargan en el kernel `#57`.
+Los `.ko.stock` y `mtk_stp_bt.ko.prev` que a veces quedan al lado no entran
+al makefile: el `insmod` de esos de stock panic.
 
 `lib/modules/wlan.ko` es un enlace roto a `wlan_mtk_connsys_mt6572.ko`, que
 el dump no tiene. No se copió.
@@ -155,8 +172,32 @@ Eso no convierte el `system.img` suelto en UBIFS. Flashear ese img a
 mtd14 sigue rompiendo la partición. El camino es el zip, desde TWRP, y
 el rollback sigue siendo el backup.
 
-## Fuera de este paso
+## Qué está corriendo en el teléfono
 
-Gralloc, lights y los EGL de Mali están en `system.ubifs`, no en el
-vendor que arma el zip. El módulo de Wi-Fi del zip es el de stock, no el
-que ya asocia a WPA2.
+Kernel `#57`, sin cambios de GPU. `/dev/mali` (10,48) y `/dev/ump` (244,0)
+ya vienen en esa imagen. Nacen `root:root 600`. `init.rc` y `07wmt` los
+dejan `666 system:graphics` antes de `class_start`. El `chmod` de `/dev/ump`
+está comentado en el `init.rc` de stock; sin él `libUMP` no abre el nodo.
+
+`ro.hardware` es `mt6572`, así que el HAL carga `gralloc.mt6572.so` y no
+`gralloc.default.so`. SurfaceFlinger reporta renderer `Mali-400 MP`,
+OpenGL ES-CM 1.1, superficie 8-8-8-8, panel `mtkfb` 320x480 con el azul
+en el bit 0. `libGLES_android.so` sigue cargado porque `egl.cfg` lo deja
+como implementación 0. La que pinta es la 1, Mali.
+
+`libMali.so` no enlaza contra el `libutils` de CM7 hasta que el parche de
+Tracer está aplicado. Sin ese símbolo `gralloc.mt6572.so` no carga y
+SurfaceFlinger se cae al abrir el framebuffer.
+
+La Mali no implementa `eglSetSwapRectangleANDROID`. El wrapper de CM7
+(`frameworks/base/opengl/libs/EGL/egl.cpp`) responde `EGL_BAD_DISPLAY`
+cuando el puntero es nulo. Sale una vez en el log, en el primer frame, y
+el compose sigue. `ro.opengles.version=131072` está en `system.prop`
+(OpenGL ES 2.0, igual que el stock). El `build.prop` del teléfono no se
+regeneró con ese valor.
+
+El combo Wi-Fi/BT no pasó por un cambio de kernel. `07wmt` carga
+`mtk_stp_wmt`, `mtk_stp_bt`, `mtk_wmt_wifi`, `cfg80211`, `wlan_mt6582` y
+deja `6620_launcher -m 3` vivo. `mtkbt` arranca en
+`sys.boot_completed=1`. El toggle de Bluetooth en Ajustes sigue siendo el
+camino BlueZ de CM7, no el de `mtkbt`.

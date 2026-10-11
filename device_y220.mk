@@ -16,7 +16,8 @@ PRODUCT_COPY_FILES += \
     device/huawei/y220/init.d/07wmt:system/etc/init.d/07wmt \
     device/huawei/y220/init.local.rc:system/etc/init.local.rc \
     device/huawei/y220/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \
-    device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh
+    device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh \
+    device/huawei/y220/egl.cfg:system/lib/egl/egl.cfg
 
 PRODUCT_COPY_FILES += \
     frameworks/base/data/etc/handheld_core_hardware.xml:system/etc/permissions/handheld_core_hardware.xml \
