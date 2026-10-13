@@ -27,7 +27,10 @@ AOSP_EXTRA = set([
 ])
 
 # Names that also exist in AOSP, but the stock file is the MTK one.
-OVERRIDE_LIBS = set(["libstagefrighthw.so"])
+OVERRIDE_LIBS = set(["libstagefrighthw.so",
+    # The stock camera service and client talk to camera.default.so; the
+    # CM7 ones only know the stub. See BOARD_USES_MTK_CAMERA.
+    "libcamera_client.so", "libcameraservice.so"])
 OVERRIDE_BINS = set(["rild"])
 
 # Toolbox applets and generic tools that the Y210 image simply does not ship.
@@ -65,6 +68,18 @@ ETC_FILES = [
 # against the stock framework. On CM7 PackageManager throws StaleDexCacheError on
 # them and system_server dies in a loop, so none are copied.
 FRAMEWORK = []
+
+# The C482B206SP05 dump has no lib/egl or lib/hw. These come from the TWRP
+# backup of the same build (system.ubifs).
+STOCK_FULL = os.environ.get("STOCK_FULL", "/home/chijure/y220/system.ubifs")
+FULL_FILES = [
+    "lib/egl/libEGL_mali.so",
+    "lib/egl/libGLESv1_CM_mali.so",
+    "lib/egl/libGLESv2_mali.so",
+    "lib/hw/camera.default.so",
+    "lib/hw/gralloc.mt6572.so",
+    "lib/hw/sensors.default.so",
+]
 
 NEEDED_RE = re.compile(r"\[([^\]]+)\]")
 
@@ -163,6 +178,12 @@ def main():
         path = os.path.join(STOCK, rel)
         if os.path.isfile(path) and os.path.getsize(path) > 0:
             add(path)
+
+    for rel in FULL_FILES:
+        path = os.path.join(STOCK_FULL, rel)
+        if not os.path.isfile(path):
+            sys.exit("missing stock file: %s" % path)
+        chosen[rel] = path
 
     fw = os.path.join(STOCK, "etc/firmware")
     for dirpath, _, files in os.walk(fw):
