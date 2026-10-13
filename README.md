@@ -258,3 +258,66 @@ encendido. En el teléfono la prueba fue esta:
 hace ese abort. El parche ya trae la guarda del path nulo, pero esa
 revisión no se instaló: el rebuild no llegó a linkar. Aunque se instale,
 `result=0` no se puede aceptar mientras `mtk_bt_enable` devuelva -1.
+
+## Radio
+
+Con el kernel `#92` el módem sube solo en frío: SIM `READY`, registrado
+en Claro (71610), IMEI leído. La cadena es la de stock:
+
+- `init.d/06modem` carga `sec`, `devapc`, `devinfo`, `ccci_plat` y
+  `ccci`, crea `/dev/sec` y `/dev/devmap`, y pone dueños ccci (9996) y
+  nvram (9997). El `ueventd` de CM7 solo acepta nombres; con números
+  deja `root:root` sin avisar, por eso va en el script.
+- `init.rc` monta `protect_f` y `protect_s` (yaffs2). `ccci_fsd` guarda
+  ahí el NVRAM del módem (`/protect_f/md`, `/protect_s/md`).
+- `ccci_mdinit` espera `nvram_init=Ready` y luego arranca
+  `gsm0710muxd`, que crea `/dev/radio/ptty*` y arranca `ril-daemon`.
+- `nvram_daemon` corre como root: CM7 solo deja a root poner
+  `nvram_init`. Con `/data` limpio restaura desde la BinRegion (lee).
+- `rild` necesita `rild.libpath` y `rild.libargs` de `system.prop`.
+  `build.prop` no depende de `system.prop` en GB: si cambia, borrar
+  `out/target/product/y220/system/build.prop` antes del build.
+
+Copia de mtd1–4 y de `protect_f`/`protect_s` antes de la primera prueba:
+`~/y220/backup-nvram-20261013/`.
+
+Lo que sigue es la historia con el `#57`.
+
+El kernel `#57` no sube el módem. `CONFIG_MTK_CCCI_DRIVER` no está
+puesto, así que este árbol no genera `ccci.ko` ni `ccci_plat.ko`. Los
+`.ko` de stock en `/system/lib/modules` piden `get_md_gpio_val` y
+`get_md_adc_val`. El `#57` exporta `get_md_gpio_info` y
+`get_md_adc_info`. El `insmod` sale con `Unknown symbol` y no crea
+`/dev/ttyC0` ni `/dev/ccci*`.
+
+Se probó el zImage del `boot.img` de stock (`Linux 3.4.5 #1`, 12 ene
+2014) con el ramdisk de CM7. `mtkbootimg --mtk 1`, base `0x10000000`,
+page 2048, cabeceras `KERNEL` y `ROOTFS`. mtd7 es NAND de 6 MB,
+writesize 4096, erase 256 KB. `flashcp` rechaza el último trozo si no
+cierra en 4096 bytes; la imagen se rellenó con `0xff` hasta el erase
+block. Recovery (mtd8) y `mtd2` no se escribieron.
+
+Ese kernel sí exporta `get_md_gpio_val`. `ccci_plat.ko` y `ccci.ko`
+cargan y aparecen `/dev/ttyC0` y `/dev/ccci_ioctl1`. El vermagic de los
+dos kernels es `3.4.5 SMP preempt mod_unload ARMv7`, así que el `#57`
+no rechaza un `.ko` de stock por versión: si el símbolo existe, entra.
+Antes del reboot, `07wmt` se renombró a `07wmt.k57` para que no hiciera
+`insmod` de los módulos del `#57`. `mtkbt` tampoco arrancó solo.
+
+`mtk-ril.so` no usa `/dev/ttyC0` como puerto AT. Abre
+`/dev/radio/pttycmd*`. En el `init.modem.rc` de stock eso lo crea
+`gsm0710muxd -s /dev/ttyC0 -f 512 -n 8 -m basic`, después de
+`ccci_fsd` y `ccci_mdinit`. El mux arrancó y se quedó en `ttyC0`;
+`/dev/radio` siguió vacío. `ccci_mdinit` espera `nvram restore ready`.
+No se arrancó, ni `nvram_daemon`: no está claro si escriben `mtd2`.
+
+`system_server` murió con `SIGSEGV` en `libsurfaceflinger.so` y zygote
+lo relanzaba. Se volvió a escribir mtd7 con la copia tomada antes del
+cambio (6 MB, kernel `0x38e128`, `boot-k57-20261011.img` junto al dump
+de stock). El teléfono arranca otra vez en `#57`. `07wmt` y el
+`start mtkbt` de `init.local.rc` quedaron como estaban.
+
+`system.prop` de este árbol tiene `rild.libpath=/system/lib/mtk-ril.so`
+y `rild.libargs=-d /dev/ttyC0`. En el `build.prop` del teléfono se
+quitaron: sin `/dev/ttyC0`, `rild` no deja `/dev/socket/rild`. Un
+system nuevo los metería y el `#57` se quedaría sin socket de radio.
