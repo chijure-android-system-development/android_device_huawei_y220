@@ -1,6 +1,12 @@
 # Huawei Y220-U05, MediaTek MT6572. Not the Y210 (MSM7x27A).
 
 USE_CAMERA_STUB := true
+# The stock libcamera_client/libcameraservice and camera.default.so (from
+# vendor) replace the stub at install. The JNI then calls the stock
+# takePicture(int). Stock CameraService is 0x68 bytes (stock mediaserver
+# allocates that); this tree's header says 0x48.
+BOARD_USES_MTK_CAMERA := true
+BOARD_MTK_CAMERA_SERVICE_SIZE := 104
 
 TARGET_NO_BOOTLOADER := true
 TARGET_NO_RADIOIMAGE := true

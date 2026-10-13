@@ -318,6 +318,10 @@ on boot
     chmod 0666 /dev/ump
     chown system graphics /dev/ump
 
+    # Camera bandwidth control, from stock init.rc (owner media there).
+    chown system camera /sys/bus/platform/drivers/mem_bw_ctrl/concurrency_scenario
+    chmod 0660 /sys/bus/platform/drivers/mem_bw_ctrl/concurrency_scenario
+
 # Include extra init file
     import /system/etc/init.local.rc
 
