@@ -472,14 +472,21 @@ No enlazan en CM7 (sin uso hoy): `libvcodecdrv.so`, `libvcodec_utility.so`,
 
 ## Pendientes conocidos
 
-- Bluetooth enciende (`dumpsys bluetooth`: ON, dirección
-  `50:9F:27:18:D5:2D` de NVRAM) pero **no busca dispositivos**. El
-  framework de CM7 pide el discovery a BlueZ (`bluetoothd`) por D-Bus; en
-  el teléfono solo corren `mtkbt` (pila MTK, sobre STP) y `dbus-daemon`,
-  sin `bluetoothd`, así que nadie contesta. El kernel tampoco tiene
-  sockets de BlueZ: RFCOMM (PBAP, MAP) y SCO fallan con `Address family
-  not supported`. Hacerlo andar pide conectar discovery/pairing/perfiles
-  con `mtkbt` (como `libbt_mtk_gap` hace con el encendido).
+- Bluetooth: enciende la radio y **busca dispositivos**; falta emparejar y
+  los perfiles (audio, archivos). La pila es `mtkbt` (MTK, sobre STP), no
+  BlueZ: no hay `bluetoothd` y el kernel no tiene sockets RFCOMM/SCO de
+  BlueZ.
+  - Para que `mtkbt` encienda el chip: `persist.mtk.wcn.combo.chipid=0x6572`,
+    grupos `system` y nvram (9997) en el servicio, y `servicemanager` que
+    deja registrar al uid bluetooth (`mtk.bt.profile.*.ashm`).
+  - Mensajes (ids de este `mtkbt`): pedidos por `bt.int.adp`, respuestas a
+    pedidos en `bt.app.gap` (POWERON_CNF 145), indicaciones en `bt.ext.adp`:
+    DISCOVERY_RESULT_IND 147, UPDATE_IND 148 (nombre), DISCOVERY_CNF 149.
+    La numeración no coincide con los headers MTK de JB en GitHub.
+  - `libbt_mtk_gap` arma DISCOVERY_REQ (103) y lee `bt.ext.adp`;
+    `frameworks_base_bt_mtk_discovery.patch` hace que `startDiscovery` lo use
+    y un hilo en `BluetoothEventLoop` llame a `onDeviceFound` y a
+    `onPropertyChanged(Discovering)`, así Ajustes recibe `ACTION_FOUND`.
 - Con BT encendido, `BluetoothHandsfree` reintentaba el accept de SCO sin
   pausa: `com.android.phone` al 43 % y ~640 líneas de log por segundo.
   `packages_apps_Phone_sco_retry.patch` lo reintenta a los 30 s.

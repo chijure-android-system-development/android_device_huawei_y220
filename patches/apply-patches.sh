@@ -67,6 +67,10 @@ apply frameworks/base frameworks_base_wifi_dormant.patch
 # Settings BT: POWERON por el socket de mtkbt. La trama está en libbt_mtk_gap.
 apply frameworks/base frameworks_base_bt_mtk_gap.patch
 
+# Discovery con mtkbt: startDiscovery manda DISCOVERY_REQ por libbt_mtk_gap y
+# un hilo lee bt.ext.adp y llama onDeviceFound/onPropertyChanged(Discovering).
+apply frameworks/base frameworks_base_bt_mtk_discovery.patch
+
 # wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
 apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
 
