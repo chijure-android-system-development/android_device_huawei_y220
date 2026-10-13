@@ -16,6 +16,7 @@ revert() {
     (cd "$CM7_ROOT/$project" && git apply --reverse "$PATCHES_DIR/$patch")
 }
 
+revert packages/apps/Phone packages_apps_Phone_sco_retry.patch
 revert frameworks/base frameworks_base_surfaceflinger_yv12.patch
 revert frameworks/base frameworks_base_camera_mtk_client.patch
 revert system/core system_core_libcutils_mtk_compat.patch

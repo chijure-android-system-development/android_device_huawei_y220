@@ -95,3 +95,7 @@ apply frameworks/base frameworks_base_camera_mtk_client.patch
 # LayerBuffer: la preview llega en YV12 por registerBuffers/postBuffer;
 # convertirla a RGB565 antes de subir la textura.
 apply frameworks/base frameworks_base_surfaceflinger_yv12.patch
+
+# Phone: si accept() del socket SCO falla, reintentar a los 30 s. Sin SCO de
+# Bluez en el kernel fallaba al instante y com.android.phone giraba al 43%.
+apply packages/apps/Phone packages_apps_Phone_sco_retry.patch
