@@ -28,6 +28,7 @@ revert external/jpeg external_jpeg_mtk_compat.patch
 revert frameworks/base frameworks_base_libutils_ics_compat.patch
 revert system/core system_core_property_ccmni.patch
 revert frameworks/base frameworks_base_phonefactory_mediatek.patch
+revert external/wpa_supplicant_6 external_wpa_supplicant_6_rssi.patch
 revert external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
 revert frameworks/base frameworks_base_bt_mtk_no_dbus_abort.patch
 revert frameworks/base frameworks_base_bt_mtk_discovery.patch

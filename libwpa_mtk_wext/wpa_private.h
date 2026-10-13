@@ -16,6 +16,10 @@ int wpa_private_rescan_on_query(void);
 /* Non-zero: issue SIOCSIWPRIV. On MT6620 that ioctl is the country
  * code, so SCAN-ACTIVE / CSCAN must not be sent as-is. */
 int wpa_private_do_priv_ioctl(const char *cmd);
+/* Answer a DRIVER command without the driver's private ioctl. Returns the
+ * reply length written to buf, or -1 when the command is not handled. */
+int wpa_private_driver_reply(const char *ifname, const char *cmd,
+			     char *buf, int buf_len);
 
 /* Non-zero: omit this BSS from SCAN_RESULTS. */
 int wpa_private_hide_scan_bss(const unsigned char *bssid,

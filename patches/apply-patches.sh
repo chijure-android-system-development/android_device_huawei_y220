@@ -78,6 +78,10 @@ apply frameworks/base frameworks_base_bt_mtk_no_dbus_abort.patch
 # wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
 apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
 
+# RSSI y LINKSPEED: libwpa_mtk_wext los responde con SIOCGIWSTATS/SIOCGIWRATE.
+# Antes wpa_supplicant devolvía el texto del comando y el ícono quedaba en 1 barra.
+apply external/wpa_supplicant_6 external_wpa_supplicant_6_rssi.patch
+
 # PhoneFactory: ro.telephony.ril_class=mediatek carga MediaTekRIL del device tree.
 apply frameworks/base frameworks_base_phonefactory_mediatek.patch
 
