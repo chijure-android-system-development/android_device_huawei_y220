@@ -389,6 +389,24 @@ y `rild.libargs=-d /dev/ttyC0`. En el `build.prop` del teléfono se
 quitaron: sin `/dev/ttyC0`, `rild` no deja `/dev/socket/rild`. Un
 system nuevo los metería y el `#57` se quedaría sin socket de radio.
 
+## Audio
+
+`libaudio` es propio (`AudioHardware.cpp`): escribe registros AFE y del
+PMIC MT6323 por ioctl en `/dev/eac`. Stock no tiene `libaudio.so`; su HAL
+está dentro de su `libaudioflinger.so`, que no encaja con el de CM7.
+
+El parlante es el Class-D del MT6323. `amp_yad` no toca GPIO en MT6572.
+
+Para cada ruta se copian los valores de stock: con algo sonando en un
+Y220 stock, `cat /proc/audio` (sin root) y comparar con CM7. Con el
+parlante, el DMA (`AFE_DL1_CUR`) no avanzaba hasta igualar:
+`AFE_DAC_CON1=9` (DL1 a 44100), `AFE_DAC_CON0` bit 10, `I2S_CON3`
+apagado, `ABB_AFE_CON0=1`, `TOP_CKPDN1` bit 15 limpio,
+`AUDTOP_CON0/1/5`, `SPK_CON1=0x8055`, `SPK_CON9=0x600`.
+
+Falta: micrófono (`openInputStream` devuelve `INVALID_OPERATION`),
+auricular y audífonos, voz en llamadas (`setMode` solo loguea) y volumen.
+
 ## Sensores
 
 Solo hay acelerómetro (KXTJ2-1009, `/dev/gsensor`). El kernel no tiene
