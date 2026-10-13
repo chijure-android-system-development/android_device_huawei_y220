@@ -1,7 +1,7 @@
 # Y220-U05 C482B206SP05. Extracted from the stock system dump.
 # Google apps and AOSP odex are not in this list.
-# lib/modules/wlan_mt6582.ko is the stock module, not the
-# rebuilt one that associates to WPA2.
+# lib/modules keeps only stock modules the kernel tree does not build;
+# the rest come from device/huawei/y220/prebuilt/modules.
 
 # bin
 bin/6620_launcher
@@ -288,17 +288,5 @@ lib/libvorbisenc_wrap.so
 lib/libvorbisidec_mtk.so
 lib/libvp8dec_xa.ca7.so
 lib/libvtmal.so
-lib/modules/ccci.ko
-lib/modules/ccci_plat.ko
-lib/modules/devapc.ko
-lib/modules/devinfo.ko
-lib/modules/mtk_fm_drv.ko
-lib/modules/mtk_stp_bt.ko
-lib/modules/mtk_stp_gps.ko
-lib/modules/mtk_stp_wmt.ko
-lib/modules/mtk_wmt_wifi.ko
 lib/modules/p2p.ko
-lib/modules/sec.ko
-lib/modules/vcodec_kernel_driver.ko
-lib/modules/wlan_mt6582.ko
 lib/mtk-ril.so

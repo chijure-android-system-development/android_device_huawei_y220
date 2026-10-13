@@ -1,5 +1,6 @@
 # Huawei Ascend Y220-U05 (MT6572). Do not inherit the Y210 Qualcomm tree.
 $(call inherit-product, device/huawei/y220/device_y220.mk)
+$(call inherit-product, device/huawei/y220/kernel-modules.mk)
 
 $(call inherit-product, vendor/cyanogen/products/common_full_no_themes.mk)
 $(call inherit-product, vendor/cyanogen/products/gsm.mk)

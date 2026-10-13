@@ -43,6 +43,11 @@ MODULE_DENY = set([
     "scsi_tgt.ko", "scsi_wait_scan.ko", "hid-logitech-dj.ko",
 ])
 
+# Modules built with the device kernel ship from device/huawei/y220/prebuilt/modules
+# (kernel-modules.mk, refreshed by update-kernel.sh). The stock ones do not match
+# the kernel: the stock ccci_plat needs get_md_gpio_val and the modem never starts.
+DEVICE_MODULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt/modules")
+
 ETC_FILES = [
     "etc/mtk_omx_core.cfg",
     "etc/media_codecs.xml",
@@ -187,6 +192,8 @@ def main():
         for name in sorted(os.listdir(mod)):
             if name in MODULE_DENY:
                 continue
+            if os.path.isfile(os.path.join(DEVICE_MODULES, name)):
+                continue
             path = os.path.join(mod, name)
             if os.path.isfile(path):
                 add(path)
@@ -211,8 +218,8 @@ def main():
     lines = []
     lines.append("# Y220-U05 C482B206SP05. Extracted from the stock system dump.")
     lines.append("# Google apps and AOSP odex are not in this list.")
-    lines.append("# lib/modules/wlan_mt6582.ko is the stock module, not the")
-    lines.append("# rebuilt one that associates to WPA2.")
+    lines.append("# lib/modules keeps only stock modules the kernel tree does not build;")
+    lines.append("# the rest come from device/huawei/y220/prebuilt/modules.")
     section = None
     for rel in rels:
         top = rel.split("/")[0]
