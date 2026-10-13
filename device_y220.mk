@@ -18,6 +18,7 @@ PRODUCT_COPY_FILES += \
 
 PRODUCT_COPY_FILES += \
     device/huawei/y220/init.rc:root/init.rc \
+    device/huawei/y220/ueventd.mt6572.rc:root/ueventd.mt6572.rc \
     device/huawei/y220/y220-wipe-system.sh:system/bin/y220-wipe-system.sh \
     device/huawei/y220/init.d/06modem:system/etc/init.d/06modem \
     device/huawei/y220/init.d/07wmt:system/etc/init.d/07wmt \

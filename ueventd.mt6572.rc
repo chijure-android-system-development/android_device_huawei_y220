@@ -1,0 +1,6 @@
+# Sensor nodes, from stock init.rc. The sensors HAL runs in system_server.
+# CM7 ueventd only takes names here, so ccci/nvram owners are in init.d/06modem.
+/dev/hwmsensor            0660   system     system
+/dev/gsensor              0660   system     system
+/dev/msensor              0660   system     system
+/dev/alsps                0660   system     system
