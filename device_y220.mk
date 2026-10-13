@@ -1,6 +1,9 @@
 $(call inherit-product, $(SRC_TARGET_DIR)/product/languages_full.mk)
 $(call inherit-product-if-exists, vendor/huawei/y220/y220-vendor.mk)
 
+# MTK preloader is not a fastboot bootloader. Drop that reboot choice.
+DEVICE_PACKAGE_OVERLAYS += device/huawei/y220/overlay
+
 ifeq ($(TARGET_PREBUILT_KERNEL),)
     LOCAL_KERNEL := device/huawei/y220/kernel
 else
