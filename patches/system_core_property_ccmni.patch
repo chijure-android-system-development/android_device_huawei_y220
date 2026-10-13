@@ -1,0 +1,12 @@
+diff --git a/init/property_service.c b/init/property_service.c
+index b6c955e05..099975119 100644
+--- a/init/property_service.c
++++ b/init/property_service.c
+@@ -59,6 +59,7 @@ struct {
+     unsigned int gid;
+ } property_perms[] = {
+     { "net.rmnet",        AID_RADIO,    0 },
++    { "net.ccmni",        AID_RADIO,    0 },
+     { "net.gprs.",        AID_RADIO,    0 },
+     { "net.ppp",          AID_RADIO,    0 },
+     { "ril.",             AID_RADIO,    0 },

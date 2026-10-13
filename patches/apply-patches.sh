@@ -69,3 +69,9 @@ apply frameworks/base frameworks_base_bt_mtk_gap.patch
 
 # wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
 apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
+
+# PhoneFactory: ro.telephony.ril_class=mediatek carga MediaTekRIL del device tree.
+apply frameworks/base frameworks_base_phonefactory_mediatek.patch
+
+# init: el proceso phone (radio) escribe net.ccmni* (DNS y gateway de datos).
+apply system/core system_core_property_ccmni.patch
