@@ -1,5 +1,5 @@
 /*
- * Speaker playback through the MediaTek /dev/eac misc device.
+ * Speaker playback and mic capture through the MediaTek /dev/eac misc device.
  * Register values are the 44100 Hz speaker path from the stock HAL.
  */
 
@@ -21,20 +21,27 @@ namespace android {
 #define SET_AUDSYS_REG      _IOWR(AUD_MAGIC, 0x00, unsigned int)
 #define SET_ANAAFE_REG      _IOWR(AUD_MAGIC, 0x02, unsigned int)
 #define ALLOCATE_MEMIF_DL1  _IOWR(AUD_MAGIC, 0x10, unsigned int)
+#define ALLOCATE_MEMIF_ADC  _IOWR(AUD_MAGIC, 0x16, unsigned int)
+#define FREE_MEMIF_ADC      _IOWR(AUD_MAGIC, 0x17, unsigned int)
 #define AUD_RESTART         _IOWR(AUD_MAGIC, 0x1F, unsigned int)
 #define START_MEMIF_TYPE    _IOWR(AUD_MAGIC, 0x20, unsigned int)
 #define STANDBY_MEMIF_TYPE  _IOWR(AUD_MAGIC, 0x21, unsigned int)
 #define SET_AUDIO_STATE     _IOWR(AUD_MAGIC, 0x42, unsigned int)
 #define AUD_SET_CLOCK       _IOWR(AUD_MAGIC, 0x51, int)
 #define AUD_SET_26MCLOCK    _IOWR(AUD_MAGIC, 0x52, int)
+#define AUD_SET_ADC_CLOCK   _IOWR(AUD_MAGIC, 0x53, int)
 #define AUD_SET_ANA_CLOCK   _IOWR(AUD_MAGIC, 0x55, int)
 #define SET_SPEAKER_ON      _IOW(AUD_MAGIC, 0xa1, int)
 #define SET_SPEAKER_OFF     _IOW(AUD_MAGIC, 0xa2, int)
 
 /* Kernel MEMIF_BUFFER_TYPE: MEM_DL1 is 0. */
 #define MEM_DL1 0
+#define MEM_VUL 2
 
 #define DL1_BYTES (16 * 1024)
+#define VUL_BYTES (16 * 1024)
+/* The mic path runs at 48000 stereo, as stock records; reads are decimated. */
+#define VUL_RATE 48000
 
 struct aud_reg {
     unsigned int offset;
@@ -73,6 +80,38 @@ private:
     EacAudio *mHw;
 };
 
+class EacStreamIn : public AudioStreamIn {
+public:
+    EacStreamIn(EacAudio *hw, uint32_t rate, uint32_t channels);
+    virtual ~EacStreamIn();
+
+    status_t initCheck() const { return mFd >= 0 ? NO_ERROR : NO_INIT; }
+    virtual uint32_t sampleRate() const { return mRate; }
+    virtual size_t bufferSize() const;
+    virtual uint32_t channels() const { return mChannels; }
+    virtual int format() const { return AudioSystem::PCM_16_BIT; }
+    virtual status_t setGain(float gain) { (void)gain; return NO_ERROR; }
+    virtual ssize_t read(void *buffer, ssize_t bytes);
+    virtual status_t dump(int fd, const Vector<String16> &args);
+    virtual status_t standby();
+    virtual status_t setParameters(const String8 &kv) { (void)kv; return NO_ERROR; }
+    virtual String8 getParameters(const String8 &keys) { (void)keys; return String8(""); }
+    virtual unsigned int getInputFramesLost() const { return 0; }
+
+    static bool supportedRate(uint32_t rate) { return rate >= 8000 && VUL_RATE % rate == 0; }
+
+private:
+    status_t start();
+    int xioctl(unsigned int cmd, unsigned long arg, const char *what);
+
+    EacAudio *mHw;
+    int mFd;
+    bool mStarted;
+    uint32_t mRate;
+    uint32_t mChannels;
+    int16_t mRaw[2 * 480];
+};
+
 class EacAudio : public AudioHardwareInterface {
 public:
     EacAudio();
@@ -102,8 +141,10 @@ public:
     status_t standbyOut();
     ssize_t writePcm(const void *buffer, size_t bytes);
     uint32_t frames() const { return mFrames; }
+    bool micMuted() const { return mMicMute; }
 
 private:
+    friend class EacStreamIn;
     int xioctl(unsigned int cmd, unsigned long arg, const char *what);
     void afe(unsigned int off, unsigned int val, unsigned int mask);
     void ana(unsigned int off, unsigned int val, unsigned int mask);
@@ -115,11 +156,12 @@ private:
     bool mMicMute;
     uint32_t mFrames;
     EacStreamOut *mOut;
+    EacStreamIn *mIn;
 };
 
 EacAudio::EacAudio()
     : mFd(-1), mStarted(false), mDlOn(false), mAllocated(false), mMicMute(false),
-      mFrames(0), mOut(0)
+      mFrames(0), mOut(0), mIn(0)
 {
     mFd = open("/dev/eac", O_RDWR);
     if (mFd < 0)
@@ -139,6 +181,7 @@ EacAudio::~EacAudio()
     if (mFd >= 0)
         close(mFd);
     delete mOut;
+    delete mIn;
 }
 
 int EacAudio::xioctl(unsigned int cmd, unsigned long arg, const char *what)
@@ -388,10 +431,11 @@ String8 EacAudio::getParameters(const String8 &keys)
 
 size_t EacAudio::getInputBufferSize(uint32_t sampleRate, int format, int channelCount)
 {
-    (void)sampleRate;
-    (void)format;
-    (void)channelCount;
-    return 0;
+    if (format != AudioSystem::PCM_16_BIT || !EacStreamIn::supportedRate(sampleRate) ||
+            channelCount < 1 || channelCount > 2)
+        return 0;
+    /* 20 ms */
+    return (sampleRate / 50) * channelCount * 2;
 }
 
 AudioStreamOut *EacAudio::openOutputStream(uint32_t devices, int *format,
@@ -425,19 +469,212 @@ AudioStreamIn *EacAudio::openInputStream(uint32_t devices, int *format,
         uint32_t *channels, uint32_t *sampleRate, status_t *status,
         AudioSystem::audio_in_acoustics acoustics)
 {
-    (void)devices;
-    (void)format;
-    (void)channels;
-    (void)sampleRate;
+    uint32_t rate = sampleRate ? *sampleRate : 8000;
+    uint32_t ch = channels ? *channels : AudioSystem::CHANNEL_IN_MONO;
+    bool bad = false;
+
     (void)acoustics;
+    LOGD("openInputStream devices 0x%x rate %u channels 0x%x", devices, rate, ch);
+
+    /* Propose something AudioFlinger can convert from (rate <= 2x request). */
+    if (format && *format != AudioSystem::PCM_16_BIT) {
+        *format = AudioSystem::PCM_16_BIT;
+        bad = true;
+    }
+    if (ch != AudioSystem::CHANNEL_IN_MONO && ch != AudioSystem::CHANNEL_IN_STEREO) {
+        ch = AudioSystem::CHANNEL_IN_MONO;
+        bad = true;
+    }
+    if (!EacStreamIn::supportedRate(rate)) {
+        rate = rate > 24000 ? 48000 : (rate > 16000 ? 24000 : (rate > 8000 ? 16000 : 8000));
+        bad = true;
+    }
+    if (bad || mIn) {
+        if (sampleRate)
+            *sampleRate = rate;
+        if (channels)
+            *channels = ch;
+        if (status)
+            *status = mIn ? INVALID_OPERATION : BAD_VALUE;
+        return 0;
+    }
+
+    EacStreamIn *in = new EacStreamIn(this, rate, ch);
+    if (in->initCheck() != NO_ERROR) {
+        delete in;
+        if (status)
+            *status = NO_INIT;
+        return 0;
+    }
+    mIn = in;
     if (status)
-        *status = INVALID_OPERATION;
-    return 0;
+        *status = NO_ERROR;
+    return in;
 }
 
 void EacAudio::closeInputStream(AudioStreamIn *in)
 {
-    (void)in;
+    if (in == mIn) {
+        delete mIn;
+        mIn = 0;
+    }
+}
+
+/*
+ * Mic capture through VUL. The memif belongs to the file it was allocated
+ * on, so the stream has its own /dev/eac. Register values are what a stock
+ * Y220 shows in /proc/audio while its sound recorder runs.
+ */
+EacStreamIn::EacStreamIn(EacAudio *hw, uint32_t rate, uint32_t channels)
+    : mHw(hw), mFd(-1), mStarted(false), mRate(rate), mChannels(channels)
+{
+    mFd = open("/dev/eac", O_RDWR);
+    if (mFd < 0)
+        LOGE("open /dev/eac for input failed errno %d", errno);
+}
+
+EacStreamIn::~EacStreamIn()
+{
+    standby();
+    if (mFd >= 0)
+        close(mFd);
+}
+
+int EacStreamIn::xioctl(unsigned int cmd, unsigned long arg, const char *what)
+{
+    int r = ioctl(mFd, cmd, arg);
+    if (r < 0)
+        LOGE("in %s ioctl 0x%x failed errno %d", what, cmd, errno);
+    return r;
+}
+
+size_t EacStreamIn::bufferSize() const
+{
+    return (mRate / 50) * AudioSystem::popCount(mChannels) * 2;
+}
+
+status_t EacStreamIn::start()
+{
+    if (mStarted)
+        return NO_ERROR;
+    if (mFd < 0)
+        return NO_INIT;
+
+    xioctl(AUD_SET_ANA_CLOCK, 1, "ana_clk");
+    xioctl(AUD_SET_26MCLOCK, 1, "clk26");
+    xioctl(AUD_SET_ADC_CLOCK, 1, "adc_clk");
+
+    /* PMIC: uplink on (ABB_AFE_CON0 bit 1), uplink rate, mic bias and ADC. */
+    mHw->ana(0x10c, 0x8100, 0x8100);
+    mHw->ana(0x4002, 0x0010, 0x0010);
+    mHw->ana(0x4028, 0x0c00, 0x0f00);
+    mHw->ana(0x4000, 0x0002, 0x0002);
+    mHw->ana(0x700, 0x79b0, 0xffff);
+    mHw->ana(0x702, 0x0340, 0xffff);
+    mHw->ana(0x704, 0x00f3, 0xffff);
+    mHw->ana(0x706, 0x0200, 0xffff);
+    mHw->ana(0x70c, 0x37e2, 0xffff);
+    mHw->ana(0x70e, 0x2400, 0xffff);
+    mHw->ana(0x710, 0x0208, 0xffff);
+
+    if (xioctl(ALLOCATE_MEMIF_ADC, VUL_BYTES, "alloc_vul") < 0)
+        return NO_INIT;
+    xioctl(START_MEMIF_TYPE, MEM_VUL, "start_vul");
+
+    /* AFE: ADC to VUL (CONN3), VUL at 48000, UL source, IRQ2 every 800. */
+    mHw->afe(0x2c, 0x00000009, 0xffffffff);
+    mHw->afe(0x14, 0x000a0000, 0x000f0000);
+    mHw->afe(0x114, 0x001e0001, 0xffffffff);
+    mHw->afe(0x138, 0x00000001, 0x00000001);
+    mHw->afe(0x13c, 0x00000c00, 0x00000c00);
+    mHw->afe(0x3d4, 0x00000001, 0x0000000f);
+    mHw->afe(0x3b0, 0x00000320, 0xffffffff);
+    mHw->afe(0x3a0, 0x00000402, 0x00000f02);
+    mHw->afe(0x10, 0x00000009, 0x00000009);
+
+    mStarted = true;
+    LOGD("mic path on, %u Hz to %u Hz", VUL_RATE, mRate);
+    return NO_ERROR;
+}
+
+status_t EacStreamIn::standby()
+{
+    if (!mStarted)
+        return NO_ERROR;
+    mHw->afe(0x10, 0, 0x8);
+    mHw->afe(0x3a0, 0, 0x2);
+    mHw->afe(0x114, 0, 0x1);
+    xioctl(STANDBY_MEMIF_TYPE, MEM_VUL, "standby_vul");
+    xioctl(FREE_MEMIF_ADC, 0, "free_vul");
+    mHw->ana(0x4000, 0, 0x2);
+    xioctl(AUD_SET_ADC_CLOCK, 0, "adc_clk");
+    mStarted = false;
+    LOGD("mic path standby");
+    return NO_ERROR;
+}
+
+/* Read 48000 stereo from VUL and average it down to mRate, mono or stereo. */
+ssize_t EacStreamIn::read(void *buffer, ssize_t bytes)
+{
+    if (start() != NO_ERROR)
+        return -1;
+
+    const int outCh = AudioSystem::popCount(mChannels);
+    const int factor = VUL_RATE / mRate;
+    const int frames = bytes / (2 * outCh);
+    int16_t *out = (int16_t *)buffer;
+    int done = 0;
+
+    while (done < frames) {
+        int want = frames - done;
+        if (want * factor > 480)
+            want = 480 / factor;
+        size_t need = want * factor * 4;
+        size_t got = 0;
+        int idle = 0;
+
+        while (got < need) {
+            ssize_t n = ::read(mFd, (char *)mRaw + got, need - got);
+            if (n < 0) {
+                LOGE("in read errno %d", errno);
+                return -1;
+            }
+            if (n == 0) {
+                /* The driver does not block; one second without data is an error. */
+                if (++idle > 200)
+                    return -1;
+                usleep(5000);
+                continue;
+            }
+            idle = 0;
+            got += n;
+        }
+
+        for (int i = 0; i < want; i++) {
+            int l = 0, r = 0;
+            for (int k = 0; k < factor; k++) {
+                l += mRaw[2 * (i * factor + k)];
+                r += mRaw[2 * (i * factor + k) + 1];
+            }
+            l /= factor;
+            r /= factor;
+            *out++ = (int16_t)l;
+            if (outCh == 2)
+                *out++ = (int16_t)r;
+        }
+        done += want;
+    }
+
+    if (mHw->micMuted())
+        memset(buffer, 0, bytes);
+    return bytes;
+}
+
+status_t EacStreamIn::dump(int fd, const Vector<String16> &args)
+{
+    (void)fd;
+    (void)args;
+    return NO_ERROR;
 }
 
 status_t EacAudio::dumpState(int fd, const Vector<String16> &args)

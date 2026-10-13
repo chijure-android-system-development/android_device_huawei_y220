@@ -404,8 +404,17 @@ parlante, el DMA (`AFE_DL1_CUR`) no avanzaba hasta igualar:
 apagado, `ABB_AFE_CON0=1`, `TOP_CKPDN1` bit 15 limpio,
 `AUDTOP_CON0/1/5`, `SPK_CON1=0x8055`, `SPK_CON9=0x600`.
 
-Falta: micrófono (`openInputStream` devuelve `INVALID_OPERATION`),
-auricular y audífonos, voz en llamadas (`setMode` solo loguea) y volumen.
+Micrófono: `EacStreamIn` abre su propio `/dev/eac` (el memif VUL queda
+atado al fd que lo reservó), pone los registros de stock grabando
+(`CONN3=9`, `UL_SRC_CON0=0x1e0001`, IRQ2 cada 800, `ABB_AFE_CON0` bit 1,
+`ABB_AFE_CON1=0x19`, `AUDTOP_CON0..8`) y captura a 48000 estéreo. `read()`
+promedia a la tasa pedida (8000, 16000, 24000, 48000); para otras propone
+una y AudioFlinger remuestrea. El `read()` del driver no bloquea.
+La tabla de tasas del AFE es 8k=0, 16k=4, 32k=8, 44.1k=9, 48k=10; el enum
+de `AudDrv_Afe.h` (44100=7) no corresponde al hardware.
+
+Falta: auricular y audífonos, voz en llamadas (`setMode` solo loguea),
+volumen, y grabar mientras suena algo (comparten registros `AUDTOP`).
 
 ## Sensores
 
