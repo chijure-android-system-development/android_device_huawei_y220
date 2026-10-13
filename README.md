@@ -281,6 +281,37 @@ en Claro (71610), IMEI leído. La cadena es la de stock:
 Copia de mtd1–4 y de `protect_f`/`protect_s` antes de la primera prueba:
 `~/y220/backup-nvram-20261013/`.
 
+### Datos móviles
+
+Funcionan en EDGE con Claro (`claro.pe`). El framework AOSP no hace lo que
+hace el de MediaTek, así que hay cuatro piezas:
+
+- `apns-conf.xml`: el de CM7 no trae mcc 716. Se agregó Claro PE.
+- `ril/.../MediaTekRIL.java` (`ro.telephony.ril_class=mediatek`):
+  - El módem arranca con `AT+EGTYPE=0` (attach cuando haga falta) y
+    `+CGREG` se queda en `2, 255`. La clase manda
+    `RIL_REQUEST_SET_GPRS_CONNECT_TYPE` (2016) con 1 al encender la radio.
+  - `+CGREG` llega como URC MTK 3020 (en el `librilmtk` de stock; el
+    `ril.h` de MT6572 en GitHub dice 3022). Se reenvía como
+    `NETWORK_STATE_CHANGED` para que el framework vuelva a leer GPRS.
+  - `SETUP_DATA_CALL` lleva un 8.º string, el cid. Sin él `mtk-ril`
+    falla sin mandar ningún AT.
+- `mtk-ril` escribe `net.ccmni0.dns1/dns2/gw` (gw = la IP local).
+  `system_core_property_ccmni.patch` deja a radio escribir `net.ccmni*`.
+- `mobiledata.interfaces` en `system.prop` incluye `ccmni0`; sin eso
+  `net.dns1` queda vacío y no resuelve nombres.
+
+`PhoneFactory` de CM7 no carga clases por nombre:
+`frameworks_base_phonefactory_mediatek.patch` agrega la rama `mediatek`.
+En cada arranque sale `Unrecognized solicited response: 2016`; RIL.java
+lo captura y no pasa nada.
+
+Para probar a mano: `/dev/socket/rild-atci` acepta comandos AT, pero al
+cerrar el cliente `librilmtk` se queda leyendo 0 bytes en bucle (CPU y
+log). Hay que reiniciar después.
+
+Falta: APN de MMS y comprobar 3G.
+
 Lo que sigue es la historia con el `#57`.
 
 El kernel `#57` no sube el módem. `CONFIG_MTK_CCCI_DRIVER` no está
