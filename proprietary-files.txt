@@ -88,7 +88,6 @@ etc/ril/oper.lis
 etc/vold.fstab.fat.nand
 etc/vold.fstab.nand
 etc/wifi/p2p.conf
-etc/wifi/wpa_supplicant.conf
 
 # lib
 lib/egl/libEGL_mali.so

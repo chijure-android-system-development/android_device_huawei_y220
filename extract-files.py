@@ -51,13 +51,15 @@ MODULE_DENY = set([
 # the kernel: the stock ccci_plat needs get_md_gpio_val and the modem never starts.
 DEVICE_MODULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebuilt/modules")
 
+# etc/wifi/wpa_supplicant.conf is not copied: the stock one is for the JB
+# supplicant (ctrl_interface=DIR=..., P2P fields) and the GB one dies on it.
+# This tree ships its own (ctrl_interface=wlan0).
 ETC_FILES = [
     "etc/mtk_omx_core.cfg",
     "etc/media_codecs.xml",
     "etc/fmr/mt6627_fm_cust.cfg",
     "etc/ril/oper.lis",
     "etc/wifi/p2p.conf",
-    "etc/wifi/wpa_supplicant.conf",
     "etc/mtklog-config.prop",
     "etc/vold.fstab.nand",
     "etc/vold.fstab.fat.nand",
