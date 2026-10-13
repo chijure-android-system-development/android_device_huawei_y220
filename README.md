@@ -67,6 +67,25 @@ bash device/huawei/y220/patches/revert-patches.sh
 - `frameworks_base_bt_mtk_gap.patch`: el enable de Ajustes llama a
   `libbt_mtk_gap` en vez de `bluetoothd`. Ver la nota de Bluetooth. No
   prenderlo.
+- `frameworks_base_phonefactory_mediatek.patch` y
+  `system_core_property_ccmni.patch`: datos móviles. Ver Radio.
+- `frameworks_base_libutils_ics_compat.patch`: `String8::format`,
+  `String8::formatV`, `Thread::join` y `PropertyMap` (sin `load()`), de
+  ICS. Los piden `camera.default.so` y las `libcam.*` de stock.
+- `external_jpeg_mtk_compat.patch`: `jpeg_compress_struct` lleva al final
+  los dos arrays de MTK (`for_huff_opt`, `last_coffs_zero`) y mide 432
+  bytes como en stock; sin eso `jpeg_CreateCompress` de `libJpgEncPipe`
+  falla por tamaño. Agrega `jpeg_mem_dest` (de libjpeg 8). Toda
+  `libjpeg` y sus usuarios (Skia) se recompilan con ese struct.
+- `system_core_libcutils_mtk_compat.patch`: `pmem_alloc`,
+  `pmem_alloc_sync`, `pmem_free` y `pmem_get_phys` sobre
+  `/dev/pmem_multimedia` (implementación propia, no la de MTK), y
+  `dump_backtrace_to_file` que devuelve -1.
+- `frameworks_base_camera_mtk_client.patch`: `Camera::takePicture(int)` y
+  el JNI lo llama con `BOARD_USES_MTK_CAMERA`; mediaserver reserva
+  `BOARD_MTK_CAMERA_SERVICE_SIZE` bytes para el `CameraService` de stock.
+- `frameworks_base_surfaceflinger_yv12.patch`: `LayerBuffer` convierte
+  YV12 a RGB565 antes de subir la textura. Ver Cámara.
 
 ## Compilación
 
@@ -146,6 +165,14 @@ RIL (`mtk-ril.so`, `librilmtk.so`, `rild`, `ccci_fsd`, `ccci_mdinit`),
 cámara, OMX, audio MTK, sensores, NVRam, `etc/firmware` (incluido
 `modem.img`) y los `.ko` reconstruidos contra el kernel del teléfono.
 No entran las apps de Google ni el odex de Settings/Phone.
+
+El dump no tiene `lib/egl` ni `lib/hw`. Esos salen de `system.ubifs` (TWRP,
+mismo build SP05), listados en `FULL_FILES` de `extract-files.py`:
+`libEGL_mali.so`, `libGLESv1_CM_mali.so`, `libGLESv2_mali.so`,
+`gralloc.mt6572.so`, `camera.default.so` y `sensors.default.so`.
+`libcamera_client.so` y `libcameraservice.so` de stock están en
+`OVERRIDE_LIBS`: se copian encima de los de CM7 (el build avisa
+`overriding commands for target`, es esperado).
 
 `egl.cfg` no es un blob: vive en este device tree (`0 0 android`,
 `0 1 mali`) y se copia a `/system/lib/egl/egl.cfg`. Sin ese archivo el
@@ -352,3 +379,66 @@ de stock). El teléfono arranca otra vez en `#57`. `07wmt` y el
 y `rild.libargs=-d /dev/ttyC0`. En el `build.prop` del teléfono se
 quitaron: sin `/dev/ttyC0`, `rild` no deja `/dev/socket/rild`. Un
 system nuevo los metería y el `#57` se quedaría sin socket de radio.
+
+## Sensores
+
+Solo hay acelerómetro (KXTJ2-1009, `/dev/gsensor`). El kernel no tiene
+`alsps`: no hay sensor de proximidad ni de luz.
+
+- HAL: `sensors.default.so` de stock. Lee eventos `EV_REL` del input
+  `hwmdata` (solo avisan que hay datos) y pide los valores con
+  `HWM_IO_GET_SENSORS_DATA` en `/dev/hwmsensor`. El tamaño del ioctl
+  (0x218) coincide con el kernel.
+- `ueventd.mt6572.rc` deja `/dev/hwmsensor` y `/dev/gsensor` en
+  `system:system 0660`, como el init.rc de stock.
+- `dumpsys sensorservice` muestra `last=<0,0,0>` aunque funcione: el HAL a
+  veces devuelve 0 eventos en `poll()` y el `recordLastValue` de GB lee
+  `buffer[-1]` en ese caso. Los eventos sí llegan a las apps.
+
+## Cámara
+
+Preview y foto funcionan con la pila de MTK de stock: `camera.default.so`,
+las `libcam.*`, `libcamera_client.so` y `libcameraservice.so` de stock.
+`USE_CAMERA_STUB` sigue en true; el stub de CM7 queda tapado al instalar.
+
+- mediaserver: el `CameraService` de stock mide 0x68 bytes y el header de
+  CM7 dice 0x48. Con `new CameraService()` de CM7 se pisa el heap y
+  mediaserver muere (SIGBUS en `writeStrongBinder`). Ver
+  `frameworks_base_camera_mtk_client.patch`.
+- Símbolos de ICS que faltaban: ver los parches de `libutils`, `libjpeg`
+  y `libcutils`.
+- Permisos (`ueventd.mt6572.rc`): `/dev/M4U_device` 0444, nodos
+  `kd_camera_*`/`camera-*` en `system:camera`, y `MTK_SMI`/`mt-mdp` en
+  `system:camera`. El mediaserver de stock corre como root; el de CM7
+  como `media` con grupo `camera` y sin grupo `media`. Sin M4U la HAL no
+  reserva buffers (`m4u_alloc_mva fail`) y el ISP queda en
+  `deque no buff`. `init.rc` pone `mem_bw_ctrl/concurrency_scenario` en
+  `system:camera`.
+- Preview: el `CameraClient` de stock usa la API de GB
+  (`registerPreviewBuffers`/`postBuffer`) sobre la `SurfaceView` de push
+  buffers. El buffer viene en YV12; `GGLSurface.format` es de 1 byte y
+  YV12 llegaba como 89, que `TextureManager` no conoce: preview blanca.
+  `LayerBuffer` ahora lo convierte a RGB565. Con `SURFACE_TYPE_NORMAL`
+  falla `registerBuffers` (-38), así que la app de Cámara no se toca.
+
+## Video (pendiente)
+
+Grabar no funciona. No se capturó el log todavía. Lo que se vio al revisar
+los blobs y puede estar en la causa:
+
+- `vcodec_kernel_driver.ko` no se carga y no hay `/dev/Vcodec` (stock lo
+  crea con `mknod /dev/Vcodec c 160 0`, `system:media 0660`).
+- No enlazan en CM7: `libvcodecdrv.so` y `libvcodec_utility.so`
+  (`__pthread_gettid`), `libMtkOmxVdec.so` (`__pthread_gettid`,
+  `AwesomePlayer::mtk_omx_get_current_time`), `libstagefrighthw.so`
+  (`MemoryHeapBaseMTK`). Tampoco `libSwJpgCodec.so` con el
+  `jpeg_decompress_struct` de CM7 (el de MTK es más grande).
+
+## Pendientes conocidos
+
+- Bluetooth: además del bucle de Ajustes, `ScoSocket` puede quedar
+  creando hilos sin parar (`accept_work socket() failed: Address family
+  not supported`), unas 650 líneas de log por segundo. Se vio tras
+  reiniciar el framework a mano.
+- GPS: no hay HAL (`gps.default.so` de stock es un stub de 5 KB).
+- APN de MMS de Claro.
