@@ -1,0 +1,180 @@
+--- /dev/null
++++ b/include/cutils/pmem.h
+@@ -0,0 +1,44 @@
++/*
++ * Copyright (C) 2026 The CyanogenMod Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef _CUTILS_PMEM_H
++#define _CUTILS_PMEM_H
++
++#include <stddef.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/*
++ * Physically contiguous buffers from /dev/pmem_multimedia, the libcutils
++ * API that MediaTek blobs (libdpframework) link against.
++ */
++
++/* Returns the mapping and its fd in *pfd, or NULL. */
++void* pmem_alloc(size_t size, int *pfd);
++/* Same, uncached (O_SYNC). */
++void* pmem_alloc_sync(size_t size, int *pfd);
++/* Unmaps and closes a buffer from pmem_alloc*. Returns 0 or -1. */
++int pmem_free(void *ptr, size_t size, int fd);
++/* Physical address of the buffer behind fd, or NULL. */
++void* pmem_get_phys(int fd);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _CUTILS_PMEM_H */
+--- /dev/null
++++ b/libcutils/pmem.c
+@@ -0,0 +1,88 @@
++/*
++ * Copyright (C) 2026 The CyanogenMod Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#define LOG_TAG "pmem"
++
++#include <fcntl.h>
++#include <unistd.h>
++#include <sys/ioctl.h>
++#include <sys/mman.h>
++#include <linux/android_pmem.h>
++
++#include <cutils/log.h>
++#include <cutils/pmem.h>
++
++#define PMEM_DEVICE "/dev/pmem_multimedia"
++
++static size_t page_align(size_t size)
++{
++    size_t page = getpagesize();
++    return (size + page - 1) & ~(page - 1);
++}
++
++/* The first mmap() of a pmem fd allocates the region. */
++static void* alloc_flags(size_t size, int *pfd, int flags)
++{
++    size_t len = page_align(size);
++    void *base;
++    int fd;
++
++    fd = open(PMEM_DEVICE, flags);
++    if (fd < 0) {
++        LOGE("open %s failed", PMEM_DEVICE);
++        return NULL;
++    }
++
++    base = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++    if (base == MAP_FAILED) {
++        LOGE("mmap %u bytes failed", len);
++        close(fd);
++        return NULL;
++    }
++
++    if (pfd)
++        *pfd = fd;
++    return base;
++}
++
++void* pmem_alloc(size_t size, int *pfd)
++{
++    return alloc_flags(size, pfd, O_RDWR);
++}
++
++void* pmem_alloc_sync(size_t size, int *pfd)
++{
++    return alloc_flags(size, pfd, O_RDWR | O_SYNC);
++}
++
++int pmem_free(void *ptr, size_t size, int fd)
++{
++    int err = munmap(ptr, page_align(size));
++
++    close(fd);
++    return err ? -1 : 0;
++}
++
++void* pmem_get_phys(int fd)
++{
++    struct pmem_region region;
++
++    if (ioctl(fd, PMEM_GET_PHYS, &region) < 0) {
++        LOGE("PMEM_GET_PHYS failed on fd %d", fd);
++        return NULL;
++    }
++    return (void *) region.offset;
++}
+--- /dev/null
++++ b/libcutils/debugger.c
+@@ -0,0 +1,28 @@
++/*
++ * Copyright (C) 2026 The CyanogenMod Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include <sys/types.h>
++
++/*
++ * ICS asks debuggerd for the backtrace of another thread. The GB debuggerd
++ * cannot do that, so report failure. MediaTek's libaed links against it.
++ */
++int dump_backtrace_to_file(pid_t tid, int fd)
++{
++    (void) tid;
++    (void) fd;
++    return -1;
++}
+--- a/libcutils/Android.mk
++++ b/libcutils/Android.mk
+@@ -109,6 +109,8 @@
+ # ========================================================
+ 
+ targetSources := ashmem-dev.c mq.c
++# MediaTek blobs link against these (camera: libdpframework, libaed).
++targetSources += pmem.c debugger.c
+ ifeq ($(TARGET_ARCH),arm)
+ targetSources += arch-arm/memset32.S
+ else  # !arm

@@ -75,3 +75,23 @@ apply frameworks/base frameworks_base_phonefactory_mediatek.patch
 
 # init: el proceso phone (radio) escribe net.ccmni* (DNS y gateway de datos).
 apply system/core system_core_property_ccmni.patch
+
+# Cámara MTK de stock (camera.default.so + libcam.*, libcamera_client y
+# libcameraservice de stock). Funciones de ICS que piden esos blobs:
+# String8::format/formatV, Thread::join, PropertyMap.
+apply frameworks/base frameworks_base_libutils_ics_compat.patch
+
+# libjpeg: jpeg_compress_struct con los dos arrays de MTK al final (432 bytes)
+# y jpeg_mem_dest, que usan libJpgEncPipe, camshot y camadapter.
+apply external/jpeg external_jpeg_mtk_compat.patch
+
+# libcutils: pmem_* (libdpframework) y dump_backtrace_to_file (libaed).
+apply system/core system_core_libcutils_mtk_compat.patch
+
+# JNI llama al takePicture(int) del cliente de stock y mediaserver reserva el
+# tamaño del CameraService de stock (BOARD_USES_MTK_CAMERA, BOARD_MTK_CAMERA_SERVICE_SIZE).
+apply frameworks/base frameworks_base_camera_mtk_client.patch
+
+# LayerBuffer: la preview llega en YV12 por registerBuffers/postBuffer;
+# convertirla a RGB565 antes de subir la textura.
+apply frameworks/base frameworks_base_surfaceflinger_yv12.patch
