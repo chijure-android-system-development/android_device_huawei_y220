@@ -1,0 +1,15 @@
+--- a/media/libstagefright/CameraSource.cpp
++++ b/media/libstagefright/CameraSource.cpp
+@@ -122,6 +122,12 @@
+        return OMX_COLOR_Format16bitRGB565;
+     }
+ 
++    // MediaTek camera HALs send video frames as I420 (Y, U, V planes) and
++    // call it this.
++    if (!strcmp(colorFormat, "yuv420i-yyuvyy-3plane")) {
++       return OMX_COLOR_FormatYUV420Planar;
++    }
++
+     LOGE("Uknown color format (%s), please add it to "
+          "CameraSource::getColorFormat", colorFormat);
+ 

@@ -16,6 +16,9 @@ revert() {
     (cd "$CM7_ROOT/$project" && git apply --reverse "$PATCHES_DIR/$patch")
 }
 
+revert packages/apps/Bluetooth packages_apps_Bluetooth_map_no_socket.patch
+revert frameworks/base frameworks_base_bt_pan_no_crash.patch
+revert frameworks/base frameworks_base_stagefright_mtk_i420.patch
 revert packages/apps/Phone packages_apps_Phone_sco_retry.patch
 revert frameworks/base frameworks_base_surfaceflinger_yv12.patch
 revert frameworks/base frameworks_base_camera_mtk_client.patch

@@ -457,18 +457,18 @@ las `libcam.*`, `libcamera_client.so` y `libcameraservice.so` de stock.
   `LayerBuffer` ahora lo convierte a RGB565. Con `SURFACE_TYPE_NORMAL`
   falla `registerBuffers` (-38), así que la app de Cámara no se toca.
 
-## Video (pendiente)
+## Video
 
-Grabar no funciona. No se capturó el log todavía. Lo que se vio al revisar
-los blobs y puede estar en la causa:
+Graba (cámara de video de CM7, 3gp). El HAL de MTK manda los cuadros como
+`yuv420i-yyuvyy-3plane`, que es I420; `CameraSource` de CM7 no conocía el
+nombre y un `CHECK` abortaba mediaserver (se caían audio, cámara y
+reproductor). `frameworks_base_stagefright_mtk_i420.patch` lo mapea a
+`OMX_COLOR_FormatYUV420Planar` y codifica el encoder por software.
 
-- `vcodec_kernel_driver.ko` no se carga y no hay `/dev/Vcodec` (stock lo
-  crea con `mknod /dev/Vcodec c 160 0`, `system:media 0660`).
-- No enlazan en CM7: `libvcodecdrv.so` y `libvcodec_utility.so`
-  (`__pthread_gettid`), `libMtkOmxVdec.so` (`__pthread_gettid`,
-  `AwesomePlayer::mtk_omx_get_current_time`), `libstagefrighthw.so`
-  (`MemoryHeapBaseMTK`). Tampoco `libSwJpgCodec.so` con el
-  `jpeg_decompress_struct` de CM7 (el de MTK es más grande).
+No enlazan en CM7 (sin uso hoy): `libvcodecdrv.so`, `libvcodec_utility.so`,
+`libMtkOmxVdec.so` (`__pthread_gettid`), `libstagefrighthw.so`
+(`MemoryHeapBaseMTK`), `libSwJpgCodec.so` (`jpeg_decompress_struct` de MTK).
+`vcodec_kernel_driver.ko` no se carga.
 
 ## Pendientes conocidos
 
@@ -483,5 +483,10 @@ los blobs y puede estar en la causa:
 - Con BT encendido, `BluetoothHandsfree` reintentaba el accept de SCO sin
   pausa: `com.android.phone` al 43 % y ~640 líneas de log por segundo.
   `packages_apps_Phone_sco_retry.patch` lo reintenta a los 30 s.
+- Al encender BT, `BluetoothNetworkService` pide `startPan` a `netd`, que
+  falla sin red Bluez; la `IllegalStateException` reiniciaba system_server.
+  `frameworks_base_bt_pan_no_crash.patch` la captura. MAP (`com.android.bluetooth`)
+  moría con `NullPointerException` en `accept()` sin socket RFCOMM;
+  `packages_apps_Bluetooth_map_no_socket.patch`.
 - GPS: no hay HAL (`gps.default.so` de stock es un stub de 5 KB).
 - APN de MMS de Claro.

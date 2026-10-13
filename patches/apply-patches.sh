@@ -99,3 +99,15 @@ apply frameworks/base frameworks_base_surfaceflinger_yv12.patch
 # Phone: si accept() del socket SCO falla, reintentar a los 30 s. Sin SCO de
 # Bluez en el kernel fallaba al instante y com.android.phone giraba al 43%.
 apply packages/apps/Phone packages_apps_Phone_sco_retry.patch
+
+# CameraSource: el HAL de MTK manda video en "yuv420i-yyuvyy-3plane" (I420).
+# Sin esto CHECK aborta mediaserver al grabar video.
+apply frameworks/base frameworks_base_stagefright_mtk_i420.patch
+
+# Bluetooth sin red Bluez: startPan/stopPan fallan en netd. La excepción
+# tumbaba system_server al encender BT.
+apply frameworks/base frameworks_base_bt_pan_no_crash.patch
+
+# MAP: si no se pudo crear el socket RFCOMM, el hilo de accept termina en vez
+# de NullPointerException.
+apply packages/apps/Bluetooth packages_apps_Bluetooth_map_no_socket.patch
