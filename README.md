@@ -250,6 +250,15 @@ entra con una imagen de boot nueva. No se ha flasheado.
 Ajustes lista y asocia. No escribir la MAC ni el país en NVRAM: la MAC de
 Wi-Fi sigue saliendo distinta en cada boot.
 
+## Wi-Fi: wpa_supplicant.conf
+
+`extract-files.py` no copia el `etc/wifi/wpa_supplicant.conf` de stock.
+Es para el supplicant de JB (`ctrl_interface=DIR=/data/misc/wpa_supplicant`,
+`config_methods`, P2P) y el de GB muere con `Failed to initialize control
+interface`. Va el de este árbol (`ctrl_interface=wlan0`). Si el teléfono ya
+arrancó con el de stock, quedó copiado en `/data/misc/wifi/` y hay que
+reemplazarlo (`system:wifi 0660`).
+
 ## Bluetooth
 
 No prenderlo desde Ajustes. El toggle deja `system_server` en un bucle.
@@ -436,9 +445,16 @@ los blobs y puede estar en la causa:
 
 ## Pendientes conocidos
 
-- Bluetooth: además del bucle de Ajustes, `ScoSocket` puede quedar
-  creando hilos sin parar (`accept_work socket() failed: Address family
-  not supported`), unas 650 líneas de log por segundo. Se vio tras
-  reiniciar el framework a mano.
+- Bluetooth enciende (`dumpsys bluetooth`: ON, dirección
+  `50:9F:27:18:D5:2D` de NVRAM) pero **no busca dispositivos**. El
+  framework de CM7 pide el discovery a BlueZ (`bluetoothd`) por D-Bus; en
+  el teléfono solo corren `mtkbt` (pila MTK, sobre STP) y `dbus-daemon`,
+  sin `bluetoothd`, así que nadie contesta. El kernel tampoco tiene
+  sockets de BlueZ: RFCOMM (PBAP, MAP) y SCO fallan con `Address family
+  not supported`. Hacerlo andar pide conectar discovery/pairing/perfiles
+  con `mtkbt` (como `libbt_mtk_gap` hace con el encendido).
+- Con BT encendido, `BluetoothHandsfree` reintentaba el accept de SCO sin
+  pausa: `com.android.phone` al 43 % y ~640 líneas de log por segundo.
+  `packages_apps_Phone_sco_retry.patch` lo reintenta a los 30 s.
 - GPS: no hay HAL (`gps.default.so` de stock es un stub de 5 KB).
 - APN de MMS de Claro.
