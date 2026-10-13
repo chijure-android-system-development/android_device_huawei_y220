@@ -7,7 +7,7 @@
 **Android base**: 2.3.6 Gingerbread (`C482B206SP05`)  
 **Stock product**: `HUAWEI/Y220-U05/HWY220-U`
 
-Kernel: [android_kernel_huawei_y220](https://github.com/chijure-android-system-development/android_kernel_huawei_y220)
+Kernel: [android_kernel_huawei_y220-u05](https://github.com/chijure-android-system-development/android_kernel_huawei_y220-u05), build `#92`
 
 ## Partitions
 
@@ -21,11 +21,11 @@ Toshiba NAND, 512 MB, page 4096, spare 128, erase size 256 KB.
 | nvram | `/dev/mtd/mtd2` | 3 MB |
 | protect_f | `/dev/mtd/mtd3` | 3 MB |
 | protect_s | `/dev/mtd/mtd4` | 3 MB |
-| seccfg | `/dev/mtd/mtd5` | 256 KB |
+| seccnfg | `/dev/mtd/mtd5` | 256 KB |
 | uboot | `/dev/mtd/mtd6` | 512 KB |
 | boot | `/dev/mtd/mtd7` | 6 MB |
 | recovery | `/dev/mtd/mtd8` | 6 MB |
-| sec_ro | `/dev/mtd/mtd9` | 256 KB |
+| secstatic | `/dev/mtd/mtd9` | 256 KB |
 | misc | `/dev/mtd/mtd10` | 768 KB |
 | logo | `/dev/mtd/mtd11` | 1 MB |
 | expdb | `/dev/mtd/mtd12` | 2 MB |
@@ -84,9 +84,16 @@ Output:
 out/target/product/y220/recovery.img
 ```
 
-The checked-in `kernel` is the prebuilt `make recoveryimage` uses. The image
-running on the device was repacked afterwards with a newer zImage from
-`android_kernel_huawei_y220` (msg2133 on GPIO110, micro SD on msdc1).
+The checked-in `kernel` is the prebuilt `make recoveryimage` uses. It is the
+`#92` zImage from `android_kernel_huawei_y220-u05`, the same kernel the phone
+boots Android with. Device dumchar names are `seccfg` and `sec_ro`; the MTD
+names above are the stock ones (`seccnfg`, `secstatic`), which `#92` also uses.
+
+On the phone, `#92` runs with the installed TWRP ramdisk: UBI attaches
+mtd14/16/15, `/system`, `/data`, `/cache` and the micro SD mount, display and
+touch work. With that ramdisk the image is 6252544 of 6291456 bytes. If a
+rebuilt ramdisk pushes it over the partition size, recompressing it with
+`pigz -11` (still gzip) saves about 107 KB.
 
 ## Flash
 
