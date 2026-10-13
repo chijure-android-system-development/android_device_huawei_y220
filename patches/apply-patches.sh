@@ -71,6 +71,10 @@ apply frameworks/base frameworks_base_bt_mtk_gap.patch
 # un hilo lee bt.ext.adp y llama onDeviceFound/onPropertyChanged(Discovering).
 apply frameworks/base frameworks_base_bt_mtk_discovery.patch
 
+# Sin adaptador BlueZ, las llamadas D-Bus que no miraban la ruta abortaban
+# system_server (emparejar reiniciaba el teléfono). Ahora fallan.
+apply frameworks/base frameworks_base_bt_mtk_no_dbus_abort.patch
+
 # wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
 apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
 
