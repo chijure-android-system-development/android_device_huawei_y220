@@ -84,26 +84,11 @@ etc/mddb/BPLGUInfoCustomAppSrcP_MT6572_S00_MOLY_WR8_W1315_MD_WG_MP_V4_P9
 etc/media_codecs.xml
 etc/mtk_omx_core.cfg
 etc/mtklog-config.prop
-etc/permissions/com.mediatek.framework.xml
 etc/ril/oper.lis
 etc/vold.fstab.fat.nand
 etc/vold.fstab.nand
 etc/wifi/p2p.conf
 etc/wifi/wpa_supplicant.conf
-
-# framework
-framework/DMAgent.jar
-framework/DMAgent.odex
-framework/com.mediatek.framework.jar
-framework/com.mediatek.framework.odex
-framework/mediatek-common.jar
-framework/mediatek-common.odex
-framework/mediatek-op.jar
-framework/mediatek-op.odex
-framework/mtklockscreen.jar
-framework/mtklockscreen.odex
-framework/wbxml.jar
-framework/wbxml.odex
 
 # lib
 lib/libGdmaScalerPipe.so

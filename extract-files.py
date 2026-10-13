@@ -51,7 +51,6 @@ DEVICE_MODULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prebu
 ETC_FILES = [
     "etc/mtk_omx_core.cfg",
     "etc/media_codecs.xml",
-    "etc/permissions/com.mediatek.framework.xml",
     "etc/fmr/mt6627_fm_cust.cfg",
     "etc/ril/oper.lis",
     "etc/wifi/p2p.conf",
@@ -61,20 +60,11 @@ ETC_FILES = [
     "etc/vold.fstab.fat.nand",
 ]
 
-FRAMEWORK = [
-    "framework/com.mediatek.framework.jar",
-    "framework/com.mediatek.framework.odex",
-    "framework/mediatek-common.jar",
-    "framework/mediatek-common.odex",
-    "framework/mediatek-op.jar",
-    "framework/mediatek-op.odex",
-    "framework/mtklockscreen.jar",
-    "framework/mtklockscreen.odex",
-    "framework/DMAgent.jar",
-    "framework/DMAgent.odex",
-    "framework/wbxml.jar",
-    "framework/wbxml.odex",
-]
+# The stock framework jars (com.mediatek.framework, mediatek-common, mediatek-op,
+# mtklockscreen, DMAgent, wbxml) are 313-byte stubs whose code is in .odex built
+# against the stock framework. On CM7 PackageManager throws StaleDexCacheError on
+# them and system_server dies in a loop, so none are copied.
+FRAMEWORK = []
 
 NEEDED_RE = re.compile(r"\[([^\]]+)\]")
 
