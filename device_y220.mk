@@ -13,6 +13,7 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     device/huawei/y220/init.rc:root/init.rc \
     device/huawei/y220/y220-wipe-system.sh:system/bin/y220-wipe-system.sh \
+    device/huawei/y220/init.d/06modem:system/etc/init.d/06modem \
     device/huawei/y220/init.d/07wmt:system/etc/init.d/07wmt \
     device/huawei/y220/init.local.rc:system/etc/init.local.rc \
     device/huawei/y220/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \

@@ -24,3 +24,35 @@ service mtkbt /system/bin/mtkbt
     group net_bt bluetooth net_bt_admin sdcard_rw inet net_admin net_raw
     disabled
     oneshot
+
+# Modem, from stock init.modem.rc. ccci_mdinit boots the modem and starts
+# gsm0710muxd, which starts ril-daemon. 9996 is ccci and 9997 is nvram;
+# CM7 has no names for them. init.d/06modem loads the modules first.
+service ccci_fsd /system/bin/ccci_fsd 0
+    user 9996
+    group 9997 9996 system
+    oneshot
+
+service ccci_mdinit /system/bin/ccci_mdinit 0
+    user system
+    group 9996 system
+    oneshot
+
+service gsm0710muxd /system/bin/gsm0710muxd -s /dev/ttyC0 -f 512 -n 8 -m basic
+    user root
+    group radio cache inet misc 9996
+    disabled
+
+service muxreport-daemon /system/bin/muxreport
+    user radio
+    group radio cache inet misc 9996
+    disabled
+    oneshot
+
+# ccci_mdinit waits for nvram_init=Ready. Stock runs this as nvram, but CM7
+# lets only root set a property with no prefix entry. gid 9997 keeps the
+# files it creates readable by ccci_fsd.
+service nvram_daemon /system/bin/nvram_daemon
+    user root
+    group 9997 system
+    oneshot
