@@ -4,6 +4,9 @@ $(call inherit-product-if-exists, vendor/huawei/y220/y220-vendor.mk)
 # MTK preloader is not a fastboot bootloader. Drop that reboot choice.
 DEVICE_PACKAGE_OVERLAYS += device/huawei/y220/overlay
 
+# MediaTekRIL goes into framework.jar. Relative to frameworks/base.
+FRAMEWORKS_BASE_SUBDIRS += ../../device/huawei/y220/ril/telephony/java
+
 ifeq ($(TARGET_PREBUILT_KERNEL),)
     LOCAL_KERNEL := device/huawei/y220/kernel
 else
