@@ -1,0 +1,14 @@
+--- a/cmds/servicemanager/service_manager.c
++++ b/cmds/servicemanager/service_manager.c
+@@ -83,6 +83,11 @@
+     if ((uid == 0) || (uid == AID_SYSTEM))
+         return 1;
+ 
++    /* As MediaTek's servicemanager: mtkbt runs as bluetooth and registers
++     * its ashmem services (mtk.bt.profile.*.ashm, vendor.mtk.bt.adp.ashm). */
++    if (uid == AID_BLUETOOTH)
++        return 1;
++
+     for (n = 0; n < sizeof(allowed) / sizeof(allowed[0]); n++)
+         if ((uid == allowed[n].uid) && str16eq(name, allowed[n].name))
+             return 1;

@@ -10,3 +10,6 @@ rild.libargs=-d /dev/ttyC0
 ro.telephony.ril_class=mediatek
 # MobileDataStateTracker reads net.<iface>.dns1/dns2 of these; mtk-ril uses ccmni0.
 mobiledata.interfaces=ccmni0,rmnet0,eth0,gprs,ppp0
+# mtkbt reads the combo chip id from here (stock init.rc sets it). Without
+# it mtk_bt_enable fails with "Unknown combo chip id".
+persist.mtk.wcn.combo.chipid=0x6572

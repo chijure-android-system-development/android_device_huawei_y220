@@ -111,3 +111,8 @@ apply frameworks/base frameworks_base_bt_pan_no_crash.patch
 # MAP: si no se pudo crear el socket RFCOMM, el hilo de accept termina en vez
 # de NullPointerException.
 apply packages/apps/Bluetooth packages_apps_Bluetooth_map_no_socket.patch
+
+# servicemanager: el uid bluetooth registra cualquier nombre, como en MTK.
+# mtkbt publica sus servicios ashmem (mtk.bt.profile.*.ashm) y, si no puede,
+# muere con SIGSEGV al encender BT.
+apply frameworks/base frameworks_base_servicemanager_bluetooth.patch
