@@ -21,6 +21,7 @@ namespace android {
 #define SET_AUDSYS_REG      _IOWR(AUD_MAGIC, 0x00, unsigned int)
 #define SET_ANAAFE_REG      _IOWR(AUD_MAGIC, 0x02, unsigned int)
 #define ALLOCATE_MEMIF_DL1  _IOWR(AUD_MAGIC, 0x10, unsigned int)
+#define AUD_RESTART         _IOWR(AUD_MAGIC, 0x1F, unsigned int)
 #define START_MEMIF_TYPE    _IOWR(AUD_MAGIC, 0x20, unsigned int)
 #define STANDBY_MEMIF_TYPE  _IOWR(AUD_MAGIC, 0x21, unsigned int)
 #define SET_AUDIO_STATE     _IOWR(AUD_MAGIC, 0x42, unsigned int)
@@ -97,6 +98,7 @@ public:
     virtual status_t dump(int fd, const Vector<String16> &args);
 
     status_t start();
+    void enableDl();
     status_t standbyOut();
     ssize_t writePcm(const void *buffer, size_t bytes);
     uint32_t frames() const { return mFrames; }
@@ -108,6 +110,7 @@ private:
 
     int mFd;
     bool mStarted;
+    bool mDlOn;
     bool mAllocated;
     bool mMicMute;
     uint32_t mFrames;
@@ -115,14 +118,19 @@ private:
 };
 
 EacAudio::EacAudio()
-    : mFd(-1), mStarted(false), mAllocated(false), mMicMute(false),
+    : mFd(-1), mStarted(false), mDlOn(false), mAllocated(false), mMicMute(false),
       mFrames(0), mOut(0)
 {
     mFd = open("/dev/eac", O_RDWR);
     if (mFd < 0)
         LOGE("open /dev/eac failed errno %d", errno);
-    else
+    else {
         LOGD("open /dev/eac fd %d", mFd);
+        /* First call only clears the boot flag. The next one drops a
+         * DL1 owner left behind when mediaserver died. */
+        xioctl(AUD_RESTART, 0, "restart");
+        xioctl(AUD_RESTART, 0, "restart");
+    }
 }
 
 EacAudio::~EacAudio()
@@ -195,25 +203,20 @@ status_t EacAudio::start()
     afe(0x264, 0, 0xffffffff);
     afe(0x108, 0x73001803, 0xffffffff);
     afe(0x10c, 0xf74f0000, 0xffffffff);
-    afe(0x34, 0x00000708, 0xffffffff);
+    /* I2S rate index 9 is 44100. Index 7 belongs to DL1, not to I2S_CON. */
+    afe(0x4c, 0x00000908, 0xffffffff);
+    afe(0x34, 0x00000908, 0xffffffff);
     afe(0x24, 0x00200000, 0x00200000);
     afe(0x28, 0x00000040, 0x00000040);
     afe(0x14, 7, 0xf);
-    /* IRQ rate index 0x9 is 44100. Without this the DL1 wait interval stays 0. */
+    /* IRQ rate index 0x9 is 44100. The IRQ itself stays off until PCM is queued. */
     afe(0x3ac, 1024, 0xffffffff);
-    afe(0x3a0, 0x91, 0xffffffff);
 
     if (!mAllocated) {
         if (xioctl(ALLOCATE_MEMIF_DL1, DL1_BYTES, "alloc") == 0)
             mAllocated = true;
     }
     xioctl(START_MEMIF_TYPE, MEM_DL1, "start");
-
-    afe(0x10, 0x2, 0x2);
-    afe(0x34, 0x1, 0x1);
-    afe(0x108, 0x1, 0x1);
-    afe(0x124, 0x1, 0x1);
-    afe(0x10, 0x1, 0x1);
 
     memset(&st, 0, sizeof(st));
     st.audio_play = 1;
@@ -241,11 +244,26 @@ status_t EacAudio::start()
     return NO_ERROR;
 }
 
+void EacAudio::enableDl()
+{
+    afe(0x10, 0, 0x3);
+    afe(0x10, 0x2, 0x2);
+    afe(0x34, 0x1, 0x1);
+    afe(0x4c, 0x1, 0x1);
+    afe(0x108, 0x1, 0x1);
+    afe(0x124, 0x1, 0x1);
+    afe(0x3a0, 0x91, 0xffffffff);
+    afe(0x10, 0x1, 0x1);
+    mDlOn = true;
+}
+
 status_t EacAudio::standbyOut()
 {
     if (mFd < 0 || !mStarted)
         return NO_ERROR;
+    afe(0x3a0, 0, 0xff);
     afe(0x10, 0, 0x3);
+    mDlOn = false;
     xioctl(STANDBY_MEMIF_TYPE, MEM_DL1, "standby");
     xioctl(SET_SPEAKER_OFF, 0, "spk_off");
     ana(0x052, 0x0004, 0xffff);
@@ -262,8 +280,11 @@ ssize_t EacAudio::writePcm(const void *buffer, size_t bytes)
     if (start() != NO_ERROR)
         return -1;
     n = ::write(mFd, buffer, bytes);
-    if (n > 0)
+    if (n > 0) {
+        if (!mDlOn)
+            enableDl();
         mFrames += n / 4;
+    }
     else if (n < 0)
         LOGE("write %d errno %d", (int)bytes, errno);
     return n;
