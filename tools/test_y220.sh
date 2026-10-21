@@ -165,8 +165,10 @@ if section bugs "CAZA DE BUGS (arranque actual)"; then
         echo "$_lib" | head -5 | while read -r l; do detail "$l"; done
     fi
 
-    _ntp=$(grep -c "SntpClient.*request time failed" "$LC")
-    if [[ "$_ntp" -eq 0 ]]; then pass "NTP sin fallos"; \
+    # UnknownHostException antes de que suba la red es normal; el bug era
+    # SocketException (host nulo -> loopback IPv6, sin IPv6 en el kernel).
+    _ntp=$(grep "SntpClient.*request time failed" "$LC" | grep -vc "UnknownHostException")
+    if [[ "$_ntp" -eq 0 ]]; then pass "NTP sin fallos de socket"; \
     else fail "NTP falló $_ntp veces" "¿falta /system/etc/gps.conf (NTP_SERVER)?"; fi
 
     detail "Tags con más errores (E/):"
