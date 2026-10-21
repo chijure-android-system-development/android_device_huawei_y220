@@ -6,6 +6,7 @@ chown system:graphics /dev/mali /dev/ump
 MOD=/system/lib/modules
 insmod $MOD/mtk_stp_wmt.ko
 insmod $MOD/mtk_stp_bt.ko
+insmod $MOD/mtk_fm_drv.ko
 insmod $MOD/mtk_wmt_wifi.ko
 insmod $MOD/cfg80211.ko
 [ -c /dev/stpbt ] || mknod /dev/stpbt c 192 0
@@ -17,6 +18,10 @@ chmod 770 /data/@btmtk
 [ -c /dev/stpwmt ] || mknod /dev/stpwmt c 190 0
 [ -c /dev/wmtWifi ] || mknod /dev/wmtWifi c 153 0
 chmod 666 /dev/stpwmt /dev/wmtWifi
+# FM Radio device node, as stock init.rc; FMRadio gets gid media.
+[ -c /dev/fm ] || mknod /dev/fm c 193 0
+chown system:media /dev/fm
+chmod 660 /dev/fm
 /system/xbin/nohup /system/bin/6620_launcher -m 3 -p /system/etc/firmware/ >/dev/null 2>&1 &
 sleep 1
 insmod $MOD/wlan_mt6582.ko

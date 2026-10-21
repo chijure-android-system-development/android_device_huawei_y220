@@ -33,6 +33,19 @@ namespace android {
 #define AUD_SET_ANA_CLOCK   _IOWR(AUD_MAGIC, 0x55, int)
 #define SET_SPEAKER_ON      _IOW(AUD_MAGIC, 0xa1, int)
 #define SET_SPEAKER_OFF     _IOW(AUD_MAGIC, 0xa2, int)
+#define SET_HEADPHONE_ON    _IOW(AUD_MAGIC, 0xa4, int)
+#define SET_HEADPHONE_OFF   _IOW(AUD_MAGIC, 0xa5, int)
+/* Combo chip audio interface: AIF_2 is digital FM, AIF_0 is off. */
+#define AUDDRV_RESET_BT_FM_GPIO _IOWR(AUD_MAGIC, 0x60, unsigned int)
+#define AUDDRV_SET_FM_I2S_GPIO  _IOWR(AUD_MAGIC, 0x62, unsigned int)
+
+/* AFE_GAIN2_CON1 steps for FM, from the stock SetHwDigitalGain table;
+ * 0x80000 is 0 dB. */
+static const unsigned int kFmGain2[] = {
+    0x0, 0x20c, 0x33e, 0x524, 0x827, 0xcec, 0x147a, 0x2075, 0x3371,
+    0x5188, 0x8138, 0xcccc, 0x14496, 0x2026f, 0x32f52, 0x50c33, 0x80000,
+};
+#define FM_GAIN2_STEPS (sizeof(kFmGain2) / sizeof(kFmGain2[0]))
 
 /* Kernel MEMIF_BUFFER_TYPE: MEM_DL1 is 0. */
 #define MEM_DL1 0
@@ -139,6 +152,13 @@ public:
     status_t start();
     void enableDl();
     status_t standbyOut();
+    void setFm(bool on);
+    void setFmVolume(int index, int max);
+    void setFmSpeaker(bool on);
+    void outputClose();
+    void outputOpen(bool spk, bool hp);
+    void setOutDevices(uint32_t devices);
+    void applyOutput();
     ssize_t writePcm(const void *buffer, size_t bytes);
     uint32_t frames() const { return mFrames; }
     bool micMuted() const { return mMicMute; }
@@ -154,6 +174,12 @@ private:
     bool mDlOn;
     bool mAllocated;
     bool mMicMute;
+    bool mFmOn;
+    bool mFmSpeaker;
+    bool mSpkOn;
+    bool mHpOn;
+    uint32_t mOutDevices;
+    unsigned int mFmGain;
     uint32_t mFrames;
     EacStreamOut *mOut;
     EacStreamIn *mIn;
@@ -161,6 +187,8 @@ private:
 
 EacAudio::EacAudio()
     : mFd(-1), mStarted(false), mDlOn(false), mAllocated(false), mMicMute(false),
+      mFmOn(false), mFmSpeaker(false), mSpkOn(false), mHpOn(false),
+      mOutDevices(AudioSystem::DEVICE_OUT_SPEAKER), mFmGain(kFmGain2[FM_GAIN2_STEPS - 1]),
       mFrames(0), mOut(0), mIn(0)
 {
     mFd = open("/dev/eac", O_RDWR);
@@ -223,14 +251,8 @@ status_t EacAudio::start()
     xioctl(AUD_SET_ANA_CLOCK, 1, "ana_clk");
     xioctl(AUD_SET_26MCLOCK, 1, "clk26");
 
-    /* AUDTOP speaker open, device type 2. 10 ms between the two phases. */
-    ana(0x70c, 0xf7f2, 0xffff);
-    ana(0x700, 0x7000, 0xf000);
-    ana(0x70a, 0x0014, 0xffff);
-    ana(0x708, 0x007c, 0xffff);
-    usleep(10000);
-    ana(0x70c, 0xf5ba, 0xffff);
-    ana(0x70a, 0x5514, 0xffff);
+    /* The AUDTOP output stage (headset/speaker) opens in applyOutput(),
+     * after the platform part, as the stock AnalogOpen does. */
     /* AUDTOP_CON0 bit 1 and AUDTOP_CON1 bit 5 are set on stock while playing. */
     ana(0x700, 0x0002, 0x0002);
     ana(0x702, 0x0020, 0x0020);
@@ -272,27 +294,113 @@ status_t EacAudio::start()
     st.audio_play = 1;
     xioctl(SET_AUDIO_STATE, (unsigned long)&st, "state");
 
-    /* Class-D loudspeaker. SET_SPEAKER_ON does not touch the PMIC on MT6572. */
-    ana(0x70e, 0x2400, 0xffff);
-    ana(0x70c, 0xb7f6, 0xffff);
-    ana(0x700, 0x7000, 0xf000);
-    ana(0x708, 0x0014, 0xffff);
-    usleep(10000);
-    ana(0x70e, 0x35b0, 0xffff);
-    ana(0x10c, 0x000e, 0x000e);
-    ana(0x056, 0x0214, 0xffff);
-    ana(0x064, 0x0600, 0xffff);
-    ana(0x054, 0x8055, 0xffff);
-    ana(0x052, 0x3008, 0xffff);
-    ana(0x052, 0x3009, 0xffff);
-    usleep(5000);
-    ana(0x052, 0x3001, 0xffff);
-    ana(0x06a, 0x0a00, 0xffff);
-    xioctl(SET_SPEAKER_ON, 0, "spk");
-
     mStarted = true;
+    applyOutput();
     LOGD("speaker path on");
     return NO_ERROR;
+}
+
+/*
+ * Stock AudioAnalogControl AnalogOpen/AnalogClose, machine part. Headset
+ * (device 2) and speaker (device 4) leave AUDTOP_CON4/6 (0x708/0x70c) in
+ * different states, so switching closes the old output before opening the
+ * new one. Both at once is the stock headset+speaker device (6).
+ */
+void EacAudio::outputClose()
+{
+    if (!mSpkOn && !mHpOn)
+        return;
+    if (mHpOn) {
+        xioctl(SET_HEADPHONE_OFF, 0, "hp_off");
+        ana(0x70a, 0x0014, 0xffff);
+    }
+    if (mSpkOn) {
+        xioctl(SET_SPEAKER_OFF, 0, "spk_off");
+        ana(0x052, 0x0004, 0xffff);
+        ana(0x06a, 0x0000, 0xffff);
+        ana(0x70e, 0x2400, 0xffff);
+    }
+    ana(0x70c, 0xf7f2, 0xffff);
+    ana(0x708, 0x0000, 0xffff);
+    ana(0x70c, 0x37e2, 0xffff);
+    mSpkOn = mHpOn = false;
+}
+
+void EacAudio::outputOpen(bool spk, bool hp)
+{
+    if (hp) {
+        ana(0x70c, 0xf7f2, 0xffff);
+        ana(0x700, 0x7000, 0xf000);
+        ana(0x70a, 0x0014, 0xffff);
+        ana(0x708, 0x007c, 0xffff);
+        usleep(10000);
+        ana(0x70c, 0xf5ba, 0xffff);
+        ana(0x70a, 0x2214, 0xffff);
+    } else if (spk) {
+        /* Not in the stock speaker open; the speaker-only path has always
+         * run with it, so keep it. */
+        ana(0x70a, 0x5514, 0xffff);
+        ana(0x70e, 0x2400, 0xffff);
+        ana(0x70c, 0xb7f6, 0xffff);
+        ana(0x700, 0x7000, 0xf000);
+        ana(0x708, 0x0014, 0xffff);
+        usleep(10000);
+    }
+    if (spk) {
+        /* Class-D loudspeaker. SET_SPEAKER_ON does not touch the PMIC on MT6572. */
+        ana(0x70e, 0x35b0, 0xffff);
+        ana(0x10c, 0x000e, 0x000e);
+        ana(0x056, 0x0214, 0xffff);
+        ana(0x064, 0x0600, 0xffff);
+        ana(0x054, 0x8055, 0xffff);
+        ana(0x052, 0x3008, 0xffff);
+        ana(0x052, 0x3009, 0xffff);
+        usleep(5000);
+        ana(0x052, 0x3001, 0xffff);
+        ana(0x06a, 0x0a00, 0xffff);
+        xioctl(SET_SPEAKER_ON, 0, "spk");
+    }
+    if (hp)
+        xioctl(SET_HEADPHONE_ON, 0, "hp");
+    mSpkOn = spk;
+    mHpOn = hp;
+}
+
+void EacAudio::setOutDevices(uint32_t devices)
+{
+    if (devices == 0 || devices == mOutDevices)
+        return;
+    LOGD("routing 0x%x", devices);
+    mOutDevices = devices;
+    applyOutput();
+}
+
+/*
+ * Music follows the policy routing. FM follows its speaker button: the
+ * headset is its antenna, so "not speaker" means the headset.
+ */
+void EacAudio::applyOutput()
+{
+    const uint32_t hpMask = AudioSystem::DEVICE_OUT_WIRED_HEADSET |
+                            AudioSystem::DEVICE_OUT_WIRED_HEADPHONE;
+    bool spk, hp;
+
+    if (!mStarted)
+        return;
+    if (mFmOn) {
+        spk = mFmSpeaker;
+        hp = !mFmSpeaker;
+    } else {
+        spk = (mOutDevices & AudioSystem::DEVICE_OUT_SPEAKER) != 0;
+        hp = (mOutDevices & hpMask) != 0;
+        if (!spk && !hp)
+            spk = true;
+    }
+    if (spk == mSpkOn && hp == mHpOn)
+        return;
+    outputClose();
+    outputOpen(spk, hp);
+    LOGD("output speaker %d headphone %d", spk, hp);
 }
 
 void EacAudio::enableDl()
@@ -313,17 +421,110 @@ status_t EacAudio::standbyOut()
 {
     if (mFd < 0 || !mStarted)
         return NO_ERROR;
+    if (mFmOn) {
+        /* FM keeps the AFE, DAC and amplifiers; only DL1 stops. */
+        afe(0x3a0, 0, 0xff);
+        afe(0x10, 0, 0x2);
+        mDlOn = false;
+        xioctl(STANDBY_MEMIF_TYPE, MEM_DL1, "standby");
+        return NO_ERROR;
+    }
     afe(0x3a0, 0, 0xff);
     afe(0x10, 0, 0x3);
     mDlOn = false;
     xioctl(STANDBY_MEMIF_TYPE, MEM_DL1, "standby");
-    xioctl(SET_SPEAKER_OFF, 0, "spk_off");
-    ana(0x052, 0x0004, 0xffff);
-    ana(0x06a, 0x0000, 0xffff);
+    outputClose();
     ana(0x10a, 0x0014, 0xffff);
     mStarted = false;
     LOGD("speaker path standby");
     return NO_ERROR;
+}
+
+/*
+ * Digital FM, as the stock SetFmChip + SetFmDirectConnection: the MT6627
+ * merge interface arrives on the 2nd I2S-in (I00/I01) at 32 kHz, ASRC brings
+ * it to the 44100 DAC, and GAIN2 (I12/I13 -> O03/O04) sets its level. It
+ * mixes in hardware with DL1 (I05/I06), so music keeps working.
+ */
+void EacAudio::setFm(bool on)
+{
+    if (mFd < 0 || on == mFmOn)
+        return;
+    if (on) {
+        if (start() != NO_ERROR)
+            return;
+        xioctl(AUDDRV_SET_FM_I2S_GPIO, 0, "fm_gpio");
+        /* DAC I2S out on, as SetI2SDacEnable; DL1 stays off without PCM. */
+        afe(0x108, 0x1, 0x1);
+        afe(0x34, 0x1, 0x1);
+        afe(0x124, 0x1, 0x1);
+        afe(0x4c4, 0, 0x10);
+        /* I00->O15, I12->O03, I01->O16, I13->O04 (AFE_GAIN2_CONN). */
+        afe(0x438, 1 << 16, 1 << 16);
+        afe(0x438, 1 << 8, 1 << 8);
+        afe(0x438, 1 << 23, 1 << 23);
+        afe(0x438, 1 << 10, 1 << 10);
+        /* GAIN2 at 44100 (rate 9), step 200. */
+        afe(0x428, 0xc890, 0xfff0);
+        afe(0x42c, mFmGain, 0xffffffff);
+        afe(0x43c, 0, 0xffffffff);
+        afe(0x428, 0x1, 0x1);
+        /* 2nd I2S-in: slave, I2S, 16 bit. */
+        afe(0x18, 0x8000000c, 0xfffffffe);
+        afe(0x4c4, 0, 0x100);
+        /* ASRC 32000 -> 44100. */
+        afe(0x30, 0, 0x40000000);
+        afe(0x14, 0x900, 0xf00);
+        afe(0x550, 0, 0x10000);
+        afe(0x554, 0xdc8000, 0xffffffff);
+        afe(0x558, 0xa00000, 0xffffffff);
+        afe(0x560, 0x1fbd, 0xffffffff);
+        afe(0x55c, 0x75987, 0xffffffff);
+        afe(0x56c, 0x1b00, 0xffffffff);
+        afe(0x500, 0x41, 0x41);
+        afe(0x18, 0x1, 0x1);
+        afe(0x10, 0x1, 0x1);
+        mFmOn = true;
+        /* FMRadio starts on the headset; its speaker button sends AudioSetFmSpeaker. */
+        applyOutput();
+        LOGD("fm digital path on, speaker %d", mFmSpeaker);
+    } else {
+        xioctl(AUDDRV_RESET_BT_FM_GPIO, 0, "fm_gpio_off");
+        afe(0x438, 0, 1 << 16);
+        afe(0x438, 0, 1 << 8);
+        afe(0x438, 0, 1 << 23);
+        afe(0x438, 0, 1 << 10);
+        afe(0x428, 0, 0x1);
+        afe(0x500, 0, 0x41);
+        afe(0x30, 0x40000000, 0x40000000);
+        afe(0x18, 0, 0x1);
+        mFmOn = false;
+        LOGD("fm digital path off");
+        if (!mDlOn)
+            standbyOut();
+        else
+            applyOutput();
+    }
+}
+
+void EacAudio::setFmVolume(int index, int max)
+{
+    if (max <= 0)
+        return;
+    if (index < 0)
+        index = 0;
+    if (index > max)
+        index = max;
+    mFmGain = kFmGain2[(index * (FM_GAIN2_STEPS - 1) + max / 2) / max];
+    LOGD("fm volume %d/%d gain2 0x%x", index, max, mFmGain);
+    if (mFmOn)
+        afe(0x42c, mFmGain, 0xffffffff);
+}
+
+void EacAudio::setFmSpeaker(bool on)
+{
+    mFmSpeaker = on;
+    applyOutput();
 }
 
 ssize_t EacAudio::writePcm(const void *buffer, size_t bytes)
@@ -368,7 +569,11 @@ status_t EacStreamOut::dump(int fd, const Vector<String16> &args)
 
 status_t EacStreamOut::setParameters(const String8 &kv)
 {
-    (void)kv;
+    AudioParameter param(kv);
+    int devices;
+
+    if (param.getInt(String8(AudioParameter::keyRouting), devices) == NO_ERROR)
+        mHw->setOutDevices(devices);
     return NO_ERROR;
 }
 
@@ -419,7 +624,20 @@ status_t EacAudio::getMicMute(bool *state)
 
 status_t EacAudio::setParameters(const String8 &kv)
 {
+    AudioParameter param(kv);
+    int fm;
+    int max = 15;
+
     LOGD("setParameters %s", kv.string());
+
+    if (param.getInt(String8("AudioSetFmVolume"), fm) == NO_ERROR) {
+        param.getInt(String8("AudioSetFmVolumeMax"), max);
+        setFmVolume(fm, max);
+    }
+    if (param.getInt(String8("AudioSetFmSpeaker"), fm) == NO_ERROR)
+        setFmSpeaker(fm != 0);
+    if (param.getInt(String8("AudioSetFmDigitalEnable"), fm) == NO_ERROR)
+        setFm(fm != 0);
     return NO_ERROR;
 }
 
@@ -442,6 +660,7 @@ AudioStreamOut *EacAudio::openOutputStream(uint32_t devices, int *format,
         uint32_t *channels, uint32_t *sampleRate, status_t *status)
 {
     LOGD("openOutputStream devices 0x%x", devices);
+    setOutDevices(devices);
     if (format)
         *format = AudioSystem::PCM_16_BIT;
     if (channels)

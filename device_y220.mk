@@ -28,6 +28,7 @@ PRODUCT_COPY_FILES += \
     device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh \
     device/huawei/y220/apns-conf.xml:system/etc/apns-conf.xml \
     device/huawei/y220/gps.conf:system/etc/gps.conf \
+    device/huawei/y220/FMRadio/com.mediatek.fmradio.xml:system/etc/permissions/com.mediatek.fmradio.xml \
     device/huawei/y220/egl.cfg:system/lib/egl/egl.cfg
 
 PRODUCT_COPY_FILES += \
@@ -46,7 +47,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PACKAGES += \
     lights.y220 \
     libaudio \
-    libbt_mtk_gap
+    libbt_mtk_gap \
+    FMRadio
 
 # Same place as the Y210 tree. This is the AOSP base (Settings, Phone,
 # SystemUI, framework jars). Without it the zip only has the CM extras.
