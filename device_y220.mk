@@ -27,6 +27,7 @@ PRODUCT_COPY_FILES += \
     device/huawei/y220/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \
     device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh \
     device/huawei/y220/apns-conf.xml:system/etc/apns-conf.xml \
+    device/huawei/y220/gps.conf:system/etc/gps.conf \
     device/huawei/y220/egl.cfg:system/lib/egl/egl.cfg
 
 PRODUCT_COPY_FILES += \
