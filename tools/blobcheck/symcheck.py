@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """symcheck.py: missing libraries and unresolved symbols in a /system copy.
 
-usage: symcheck.py <system dir>
+usage: symcheck.py <system dir> [preload lib ...]
 
 For every ELF under <system dir> it prints the NEEDED libraries that are
 not in lib/, lib/hw or lib/egl, and the undefined (non-weak) dynamic
-symbols that no library of its NEEDED closure defines. Lines are
-"<path>: NEEDED <lib>" and "<path>: UNDEF <symbol>".
+symbols that no library of its NEEDED closure defines. Preload libraries
+(names in lib/, as mediaserver gets with LD_PRELOAD) count for every file.
+Lines are "<path>: NEEDED <lib>" and "<path>: UNDEF <symbol>".
 """
 import os, re, subprocess, sys
 
 root = sys.argv[1]
+PRELOAD = sys.argv[2:]
 LIBDIRS = [os.path.join(root, d) for d in ('lib', 'lib/hw', 'lib/egl')]
 ENV = dict(os.environ, LC_ALL='C')
 cache = {}
@@ -53,13 +55,14 @@ def is_elf(path):
 
 
 def main():
+    preloads = [p for p in map(find, PRELOAD) if p]
     for dirpath, _, files in os.walk(root):
         for name in sorted(files):
             path = os.path.join(dirpath, name)
             if os.path.islink(path) or not is_elf(path):
                 continue
             rel = os.path.relpath(path, root)
-            seen, todo, missing = set(), [path], []
+            seen, todo, missing = set(), [path] + preloads, []
             while todo:
                 p = todo.pop()
                 if p in seen:

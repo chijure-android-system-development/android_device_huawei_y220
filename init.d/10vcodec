@@ -1,0 +1,7 @@
+#!/system/bin/sh
+# MTK video codec driver, as in stock init.charging.rc. libvcodecdrv in
+# mediaserver (user media) opens /dev/Vcodec; CM7 ueventd does not know it.
+insmod /system/lib/modules/vcodec_kernel_driver.ko
+[ -c /dev/Vcodec ] || mknod /dev/Vcodec c 160 0
+chown system:media /dev/Vcodec
+chmod 660 /dev/Vcodec

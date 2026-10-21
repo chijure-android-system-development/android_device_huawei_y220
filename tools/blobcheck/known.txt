@@ -2,15 +2,6 @@
 # fijo; una salida que lo contenga cuenta como conocida. Van las causas
 # raíz, así que también cubren lo que cae por arrastre.
 
-# Codecs de video MTK: libsched necesita sched_getaffinity, que el bionic
-# de CM7 no tiene; arrastra libvcodec_utility, libvcodecdrv, libMtkOmx*
-# y los h264/mp4 enc/dec. El video va por los codecs de software.
-sched_getaffinity
-sched_setaffinity
-__pthread_gettid
-mtk_omx_get_current_time
-# libstagefrighthw MTK: MemoryHeapBaseMTK del libbinder de MTK.
-MemoryHeapBaseMTK
 # AAC encoder MTK: libvo_aacenc no está en CM7.
 libvo_aacenc.so
 

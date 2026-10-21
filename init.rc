@@ -401,6 +401,8 @@ service zygote /system/bin/app_process -Xzygote /system/bin --zygote --start-sys
     onrestart restart netd
 
 service media /system/bin/mediaserver
+    # Bionic and MTK libbinder/libstagefright symbols for the MTK OMX blobs.
+    setenv LD_PRELOAD libmtk_shim.so
     user media
     group system audio camera graphics inet net_bt net_bt_admin net_raw
     ioprio rt 4

@@ -47,7 +47,8 @@ adb get-state >/dev/null 2>&1 || { echo "sin dispositivo ADB"; exit 2; }
 echo -e "${BLD}== NEEDED y símbolos (symcheck.py)${RST}"
 mkdir -p "$WORK/system"
 for d in lib bin xbin; do adb pull /system/$d "$WORK/system/$d" >/dev/null 2>&1; done
-python3 "$HERE/symcheck.py" "$WORK/system" | sort > "$WORK/sym.txt"
+# mediaserver precarga libmtk_shim (init.rc); los codecs MTK solo cargan ahí.
+python3 "$HERE/symcheck.py" "$WORK/system" libmtk_shim.so | sort > "$WORK/sym.txt"
 classify "$WORK/sym.txt"
 
 echo -e "${BLD}== dlopen en el teléfono (dltest)${RST}"
@@ -62,6 +63,7 @@ if [ ! -f "$BIN" ]; then
 else
     adb push "$BIN" /data/local/tmp/dltest >/dev/null
     adb shell 'chmod 755 /data/local/tmp/dltest; cd /system/lib;
+        [ -f libmtk_shim.so ] && export LD_PRELOAD=libmtk_shim.so;
         /data/local/tmp/dltest *.so hw/*.so egl/*.so' | tr -d '\r' \
         | grep -v ': OK$' | sort > "$WORK/dl.txt"
     classify "$WORK/dl.txt"
