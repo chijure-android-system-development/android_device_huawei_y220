@@ -478,6 +478,22 @@ No enlazan en CM7 (sin uso hoy): `libvcodecdrv.so`, `libvcodec_utility.so`,
 (`MemoryHeapBaseMTK`), `libSwJpgCodec.so` (`jpeg_decompress_struct` de MTK).
 `vcodec_kernel_driver.ko` no se carga.
 
+## Revisión de blobs
+
+`tools/blobcheck/blobcheck.sh` revisa el `/system` del teléfono conectado:
+`symcheck.py` busca bibliotecas NEEDED que faltan y símbolos sin definir, y
+`dltest` hace `dlopen` en el teléfono de cada `.so` de `/system/lib`, que es
+lo único que muestra lo que rechaza el linker de GB. Con
+`--stock ~/y220/system.ubifs.win` lista además los archivos de stock que
+CM7 no tiene. `known.txt` guarda los fallos conocidos con su causa; lo
+demás sale como NUEVO y el script termina con 1. `dltest` se compila con
+`mmm device/huawei/y220/tools/blobcheck`.
+
+La comparación del 2026-10-21 contra stock encontró que faltaban la
+política térmica (`09thermal`) y `dalvik.vm.heapsize` (Dalvik usaba 16m).
+El `gps.default.so` de stock es un stub vacío: el Y220-U05 no tiene GPS. De
+sensores solo hay acelerómetro, como en stock.
+
 ## Pendientes conocidos
 
 - Bluetooth: enciende la radio y **busca dispositivos**; falta emparejar y
