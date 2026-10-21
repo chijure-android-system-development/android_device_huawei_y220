@@ -11,7 +11,9 @@ on fs
     write /sys/class/android_usb/android0/functions adb
     write /sys/class/android_usb/android0/iManufacturer HUAWEI
     write /sys/class/android_usb/android0/iProduct Y220-U05
-    write /sys/class/android_usb/android0/iSerial ${ro.serialno}
+    # The MTK LK passes no androidboot.serialno; use the serial the system
+    # kernel reports instead of the gadget default 0123456789ABCDEF.
+    write /sys/class/android_usb/android0/iSerial Y220-U05
 
 on boot
     setprop persist.service.adb.enable 1
@@ -24,3 +26,7 @@ on property:sys.usb.config=adb
     write /sys/class/android_usb/android0/enable 1
     start adbd
     setprop sys.usb.state adb
+
+# See /sbin/memguard.sh: UBIFS mounts need contiguous memory.
+service memguard /sbin/sh /sbin/memguard.sh
+    seclabel u:r:recovery:s0

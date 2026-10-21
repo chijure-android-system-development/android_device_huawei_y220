@@ -64,6 +64,30 @@ and `ubi2`.
   and never Format All.
 - USB vendor/product in Android and in this recovery is `12d1:2351`.
 
+## Memory for UBIFS mounts
+
+UBIFS on this kernel `kmalloc`s LEB-sized buffers (about 248 KB,
+`orph_buf` in `fs/ubifs/orphan.c` and `lpt_buf` in `lpt.c`) on every mount.
+A backup or restore streams a few hundred MB through the page cache. After
+that no such contiguous block is left and the next mount fails with
+`Failed to mount '/system' (Out of memory)` (`ubifs_mount_orphans` and
+`ubifs_lpt_init` in dmesg). A full restore then stopped before wiping
+System, and System restored alone failed to mount `/data` afterwards.
+
+`sbin/memguard.sh`, started by `init.recovery.mt6572.rc`, drops the page
+cache when `Cached` passes 32 MB, checked every 2 s. Neither the kernel nor
+the recovery binary changes. Tested on 2026-10-21 with a full backup plus a
+full `SDCB` restore in one run: 191 MB in 48 s, no ENOMEM, about 177 MB
+free throughout. The proper fix is `vmalloc` for those buffers, as mainline
+does, but that needs a new recovery kernel.
+
+The USB serial is written as `Y220-U05` in the same file. The MTK LK passes
+no `androidboot.serialno`, so `${ro.serialno}` was empty and adb showed the
+gadget default `0123456789ABCDEF`.
+
+The image built this way is `recovery-twrp-k92.img` plus those two ramdisk
+changes, repacked with the same kernel and the same `sbin/recovery`.
+
 ## Entering recovery mode
 
 From a booted system:
