@@ -220,8 +220,20 @@ static int gap_request(unsigned long req, unsigned long cnf)
     return wait_cnf(cnf, &result, BTMTK_MAX_STACK_TIMEOUT);
 }
 
+/* mtkbt is started by init.d/07wmt, after system_server already enables
+ * Bluetooth at boot; its socket may not exist yet. */
+#define BTMTK_POWERON_WAIT_MS 10000
+
 int btmtk_gap_power_on(void)
 {
+    int waited = 0;
+
+    while (access(BT_SOCK_NAME_INT_ADP, F_OK) != 0 && waited < BTMTK_POWERON_WAIT_MS) {
+        usleep(250 * 1000);
+        waited += 250;
+    }
+    if (waited)
+        LOGI("mtkbt socket after %d ms", waited);
     LOGI("POWERON_REQ");
     if (gap_request(MSG_ID_BT_POWERON_REQ, MSG_ID_BT_POWERON_CNF) != 0)
         return -1;
