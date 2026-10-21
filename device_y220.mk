@@ -23,6 +23,7 @@ PRODUCT_COPY_FILES += \
     device/huawei/y220/init.d/06modem:system/etc/init.d/06modem \
     device/huawei/y220/init.d/07wmt:system/etc/init.d/07wmt \
     device/huawei/y220/init.d/08zram:system/etc/init.d/08zram \
+    device/huawei/y220/init.d/09thermal:system/etc/init.d/09thermal \
     device/huawei/y220/init.local.rc:system/etc/init.local.rc \
     device/huawei/y220/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \
     device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh \

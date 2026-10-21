@@ -69,6 +69,9 @@ bin/wlan_loader
 bin/xlog
 
 # etc
+etc/.tp/.ht120.mtc
+etc/.tp/thermal.conf
+etc/.tp/thermal.off.conf
 etc/firmware/S_ANDRO_SFL.ini
 etc/firmware/WIFI_RAM_CODE_MT6582
 etc/firmware/WMT_SOC.cfg

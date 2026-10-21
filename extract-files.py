@@ -81,6 +81,10 @@ FULL_FILES = [
     "lib/hw/camera.default.so",
     "lib/hw/gralloc.mt6572.so",
     "lib/hw/sensors.default.so",
+    # thermal_manager loads these into /proc/mtktz; the dump lost dot dirs.
+    "etc/.tp/thermal.conf",
+    "etc/.tp/thermal.off.conf",
+    "etc/.tp/.ht120.mtc",
 ]
 
 NEEDED_RE = re.compile(r"\[([^\]]+)\]")

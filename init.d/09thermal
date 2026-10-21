@@ -1,0 +1,11 @@
+#!/system/bin/sh
+# Thermal and display setup from stock init.rc. Without thermal_manager
+# the /proc/mtktz zones have no trip points and nothing throttles the CPU
+# or the charger; it loads /etc/.tp/thermal.conf and exits.
+/system/bin/thermal_manager
+# thermald takes the kernel shutdown request (mtk-cl-shutdown); it
+# registers its pid and stays. The stock WiFi throttle daemon (thermal)
+# needs ifc_set_throttle from the MTK libnetutils and does not link.
+/system/xbin/nohup /system/bin/thermald >/dev/null 2>&1 &
+# Display picture quality tables (MDP), oneshot.
+/system/bin/pq
