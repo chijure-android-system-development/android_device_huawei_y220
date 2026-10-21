@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- mtk-ril fails RIL_REQUEST_SET_MUTE. The uplink is muted by libaudio
+         (setMicMute sends the speech UL mute to the modem), as on stock. -->
+    <bool name="send_mic_mute_to_AudioManager">true</bool>
+</resources>

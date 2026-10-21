@@ -46,6 +46,8 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
      * (seen in the RILC hex dump); later MTK ril.h files put it at 3022.
      */
     static final int RIL_UNSOL_RESPONSE_PS_NETWORK_STATE_CHANGED = 3020;
+    /* +ECPI call progress (strings), RIL_UNSOL_MTK_BASE (3000) + 4. */
+    static final int RIL_UNSOL_CALL_PROGRESS_INFO = 3004;
 
     public MediaTekRIL(Context context, int networkMode, int cdmaSubscription) {
         super(context, networkMode, cdmaSubscription);
@@ -96,6 +98,11 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
      * AOSP does not know the MTK PS state URC and would never poll the
      * GPRS state again after the attach. Pass it on as the plain network
      * state change, which makes the service state tracker poll.
+     *
+     * mtk-ril reports call progress (alerting, connected, released) only
+     * as +ECPI and never sends CALL_STATE_CHANGED, so the call tracker
+     * keeps the call DIALING and the in-call mute and dialpad buttons stay
+     * off. Pass +ECPI on as the call state change, which makes it poll.
      */
     @Override
     protected void processUnsolicited(Parcel p) {
@@ -105,6 +112,9 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
         if (response == RIL_UNSOL_RESPONSE_PS_NETWORK_STATE_CHANGED) {
             p.setDataPosition(dataPosition);
             p.writeInt(RIL_UNSOL_RESPONSE_NETWORK_STATE_CHANGED);
+        } else if (response == RIL_UNSOL_CALL_PROGRESS_INFO) {
+            p.setDataPosition(dataPosition);
+            p.writeInt(RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED);
         }
         p.setDataPosition(dataPosition);
 
