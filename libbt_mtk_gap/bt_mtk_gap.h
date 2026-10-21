@@ -37,6 +37,7 @@ enum {
     BTMTK_GAP_EV_USER_CONFIRM,   /* addr, passkey */
     BTMTK_GAP_EV_PIN_REQUEST,    /* addr */
     BTMTK_GAP_EV_BOND_RESULT,    /* addr, result (0 = bonded) */
+    BTMTK_GAP_EV_REMOTE_NAME,    /* addr, name */
 };
 
 typedef struct {

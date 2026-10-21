@@ -1,8 +1,8 @@
 diff --git a/core/java/android/server/BluetoothEventLoop.java b/core/java/android/server/BluetoothEventLoop.java
-index 3df7a31df37..7c5d944ca17 100644
+index 3df7a31df37..321ddc94a5f 100644
 --- a/core/java/android/server/BluetoothEventLoop.java
 +++ b/core/java/android/server/BluetoothEventLoop.java
-@@ -156,6 +156,54 @@ class BluetoothEventLoop {
+@@ -156,6 +156,66 @@ class BluetoothEventLoop {
          return isEventLoopRunningNative();
      }
  
@@ -54,10 +54,22 @@ index 3df7a31df37..7c5d944ca17 100644
 +                BluetoothDevice.BOND_SUCCESS : BluetoothDevice.UNBOND_REASON_AUTH_FAILED);
 +    }
 +
++    /* mtkbt sends the remote name after pairing; BlueZ would send a Name
++     * PropertyChanged. The device may not be cached yet (incoming pairing). */
++    private void onMtkRemoteName(String address, String name) {
++        address = address.toUpperCase();
++        mBluetoothService.addRemoteDeviceProperties(address,
++                new String[] {"Name", name, "Alias", name});
++        Intent intent = new Intent(BluetoothDevice.ACTION_NAME_CHANGED);
++        intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mAdapter.getRemoteDevice(address));
++        intent.putExtra(BluetoothDevice.EXTRA_NAME, name);
++        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
++    }
++
      private void addDevice(String address, String[] properties) {
          mBluetoothService.addRemoteDeviceProperties(address, properties);
          String rssi = mBluetoothService.getRemoteDeviceProperty(address, "RSSI");
-@@ -661,5 +709,7 @@ class BluetoothEventLoop {
+@@ -661,5 +721,7 @@ class BluetoothEventLoop {
      private native void startEventLoopNative();
      private native void stopEventLoopNative();
      private native boolean isEventLoopRunningNative();
@@ -286,7 +298,7 @@ index bb01d9d1f48..4f8c0dca152 100644
  LOCAL_SHARED_LIBRARIES += \
  	libdl
 diff --git a/core/jni/android_server_BluetoothEventLoop.cpp b/core/jni/android_server_BluetoothEventLoop.cpp
-index 50c34c254b6..a20da26679e 100644
+index 50c34c254b6..3ec6f9f7a01 100644
 --- a/core/jni/android_server_BluetoothEventLoop.cpp
 +++ b/core/jni/android_server_BluetoothEventLoop.cpp
 @@ -26,6 +26,7 @@
@@ -297,7 +309,7 @@ index 50c34c254b6..a20da26679e 100644
  #include <stdlib.h>
  #include <errno.h>
  #include <unistd.h>
-@@ -1280,6 +1281,158 @@ done:
+@@ -1280,6 +1281,169 @@ done:
  }
  #endif
  
@@ -316,6 +328,7 @@ index 50c34c254b6..a20da26679e 100644
 +static jmethodID s_mtk_onPasskeyConfirmation;
 +static jmethodID s_mtk_onPinRequest;
 +static jmethodID s_mtk_onBondResult;
++static jmethodID s_mtk_onRemoteName;
 +
 +static void mtk_discovering(JNIEnv *env, bool on)
 +{
@@ -384,6 +397,14 @@ index 50c34c254b6..a20da26679e 100644
 +        case BTMTK_GAP_EV_DEVICE_FOUND:
 +            mtk_device_found(env, &ev);
 +            break;
++        case BTMTK_GAP_EV_REMOTE_NAME: {
++            jstring addr = env->NewStringUTF(ev.addr);
++            jstring nm = env->NewStringUTF(ev.name);
++            env->CallVoidMethod(s_mtk_obj, s_mtk_onRemoteName, addr, nm);
++            env->DeleteLocalRef(nm);
++            env->DeleteLocalRef(addr);
++            break;
++        }
 +        case BTMTK_GAP_EV_USER_CONFIRM:
 +        case BTMTK_GAP_EV_PIN_REQUEST:
 +        case BTMTK_GAP_EV_BOND_RESULT: {
@@ -424,6 +445,8 @@ index 50c34c254b6..a20da26679e 100644
 +                                              "(Ljava/lang/String;)V");
 +        s_mtk_onBondResult = env->GetMethodID(clazz, "onMtkBondResult",
 +                                              "(Ljava/lang/String;I)V");
++        s_mtk_onRemoteName = env->GetMethodID(clazz, "onMtkRemoteName",
++                                              "(Ljava/lang/String;Ljava/lang/String;)V");
 +        env->DeleteLocalRef(clazz);
 +    }
 +    env->GetJavaVM(&s_mtk_vm);
@@ -456,7 +479,7 @@ index 50c34c254b6..a20da26679e 100644
  static JNINativeMethod sMethods[] = {
       /* name, signature, funcPtr */
      {"classInitNative", "()V", (void *)classInitNative},
-@@ -1287,7 +1440,9 @@ static JNINativeMethod sMethods[] = {
+@@ -1287,7 +1451,9 @@ static JNINativeMethod sMethods[] = {
      {"cleanupNativeDataNative", "()V", (void *)cleanupNativeDataNative},
      {"startEventLoopNative", "()V", (void *)startEventLoopNative},
      {"stopEventLoopNative", "()V", (void *)stopEventLoopNative},

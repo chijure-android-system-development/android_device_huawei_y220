@@ -270,6 +270,8 @@ int btmtk_gap_local_address(char *out, int outlen)
 #define MSG_ID_BT_BM_PIN_CODE_IND               163
 #define MSG_ID_BT_BM_SECURITY_USER_CONFIRM_IND  164
 #define MSG_ID_BT_BM_BONDING_RESULT_IND         172
+#define MSG_ID_BT_BM_LINK_STATE_IND             186
+#define MSG_ID_BT_BM_REMOTE_NAME_IND            194
 
 static int s_ext = -1;
 static int s_pipe[2] = { -1, -1 };
@@ -641,6 +643,27 @@ int btmtk_gap_event_wait(btmtk_gap_event_t *ev, int timeout_ms)
         addr_unpack(ilm.ilm_data + 8, ev->addr, sizeof(ev->addr));
         ev->type = BTMTK_GAP_EV_BOND_RESULT;
         return 1;
+    case MSG_ID_BT_BM_REMOTE_NAME_IND:
+        /* hdr, bd_addr, name_len, name. Sent after pairing with a device
+         * that discovery never saw (incoming pairing). */
+        if (n < 13 || ilm.ilm_data[12] == 0)
+            return 0;
+        addr_unpack(ilm.ilm_data + 4, ev->addr, sizeof(ev->addr));
+        {
+            int len = ilm.ilm_data[12];
+            if (len > n - 13)
+                len = n - 13;
+            if (len > (int)sizeof(ev->name) - 1)
+                len = sizeof(ev->name) - 1;
+            memcpy(ev->name, ilm.ilm_data + 13, len);
+            ev->name[len] = 0;
+        }
+        LOGI("REMOTE_NAME_IND %s \"%s\"", ev->addr, ev->name);
+        ev->type = BTMTK_GAP_EV_REMOTE_NAME;
+        return 1;
+    case MSG_ID_BT_BM_LINK_STATE_IND:
+        /* hdr, 0x04, state (ilm_data[5]: 1 up, 0 down), bd_addr at 8. */
+        return 0;
     default:
         LOGI("ext msg %lu (%d bytes)", ilm.msg_id, n);
         return 0;
