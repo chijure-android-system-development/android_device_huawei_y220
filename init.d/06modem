@@ -25,6 +25,9 @@ i=0
 while [ ! -c /dev/ttyC0 ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
 chown 9996:9996 /dev/ccci* /dev/ttyC*
 chmod 660 /dev/ccci* /dev/ttyC*
+# Voice call control and PCM: libaudio in mediaserver (uid media, group
+# audio) talks to the modem here. Stock mediaserver runs as root.
+chown 9996:audio /dev/ccci_pcm_rx /dev/ccci_pcm_tx
 if [ -c /dev/otp ]; then
     chown root:9997 /dev/otp
     chmod 660 /dev/otp

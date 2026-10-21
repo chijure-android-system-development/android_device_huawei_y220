@@ -7,11 +7,16 @@
 
 #include <hardware_legacy/AudioHardwareInterface.h>
 
+#include "speech_param_default.h"
+
 #include <cutils/log.h>
 #include <fcntl.h>
+#include <math.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 namespace android {
@@ -35,6 +40,36 @@ namespace android {
 #define SET_SPEAKER_OFF     _IOW(AUD_MAGIC, 0xa2, int)
 #define SET_HEADPHONE_ON    _IOW(AUD_MAGIC, 0xa4, int)
 #define SET_HEADPHONE_OFF   _IOW(AUD_MAGIC, 0xa5, int)
+#define SET_EARPIECE_ON     _IOW(AUD_MAGIC, 0xa6, int)
+#define SET_EARPIECE_OFF    _IOW(AUD_MAGIC, 0xa7, int)
+
+/* Modem speech control (stock SpeechMessengerCCCI): 16-byte messages
+ * {0xffffffff, id << 16 | param16, 5, param32} written to ccci_pcm_tx; the
+ * modem answers on ccci_pcm_rx with id | 0x8000. */
+#define CCCI_PCM_TX          "/dev/ccci_pcm_tx"
+#define CCCI_PCM_RX          "/dev/ccci_pcm_rx"
+#define CCCI_IOC_GET_MD_STATE 0x80044301
+#define CCCI_IOC_SHARE_SIZE  0x80044303
+#define SPH_ENH_MASK         0x2f24
+#define SPH_NB_PARAM         0x2f71
+#define SPH_WB_PARAM         0x2f73
+#define SPH_PARAM_REQUEST    0xaf70
+/* SetVariousKindsOfSpeechParameters: {0xa2a2, 7, len} then data, here. */
+#define SPH_PARAM_OFFSET     0x68a
+#define SPH_DL_GAIN          0x2f00
+#define SPH_UL_GAIN          0x2f01
+#define SPH_UL_MUTE          0x2f02
+#define SPH_DL_MUTE          0x2f03
+#define SPH_SIDETONE_GAIN    0x2f04
+#define SPH_SAMPLE_RATE      0x2f10
+#define SPH_SPEECH_ON        0x2f20
+#define SPH_SPEECH_OFF       0x2f21
+#define SPH_SPEECH_MODE      0x2f22
+#define SPH_ACK              0x8000
+#define SPH_RATE             16000
+/* Stock default mic gain for a call: PGA 18 dB (field 2), digital 12 dB. */
+#define SPH_MIC_PGA_FIELD    2
+#define SPH_UL_DIGITAL       (12 * 4)
 /* Combo chip audio interface: AIF_2 is digital FM, AIF_0 is off. */
 #define AUDDRV_RESET_BT_FM_GPIO _IOWR(AUD_MAGIC, 0x60, unsigned int)
 #define AUDDRV_SET_FM_I2S_GPIO  _IOWR(AUD_MAGIC, 0x62, unsigned int)
@@ -161,6 +196,7 @@ public:
     void outputOpen(bool spk, bool hp);
     void setOutDevices(uint32_t devices);
     void applyOutput();
+    bool inCall() const { return mInCall; }
     ssize_t writePcm(const void *buffer, size_t bytes);
     uint32_t frames() const { return mFrames; }
     bool micMuted() const { return mMicMute; }
@@ -170,6 +206,21 @@ private:
     int xioctl(unsigned int cmd, unsigned long arg, const char *what);
     void afe(unsigned int off, unsigned int val, unsigned int mask);
     void ana(unsigned int off, unsigned int val, unsigned int mask);
+
+    /* Voice call (stock SpeechPhoneCallController). */
+    bool sphOpen();
+    void sphClose();
+    int sphSend(unsigned int id, unsigned int p16, unsigned int p32, bool ack);
+    int sphSendParam(unsigned int id, const unsigned char *data, unsigned int len);
+    void sphParams();
+    int sphDevice(uint32_t devices) const;
+    void callDigital(bool on);
+    void callMic(bool on, int dev);
+    void callOutput(bool on, int dev);
+    void callStart(int dev);
+    void callStop();
+    void callRoute(int dev);
+    void callVolume();
 
     int mFd;
     bool mStarted;
@@ -181,6 +232,15 @@ private:
     bool mSpkOn;
     bool mHpOn;
     uint32_t mOutDevices;
+    int mMode;
+    bool mInCall;
+    int mCallDev;
+    int mSphTx;
+    int mSphRx;
+    unsigned char *mSphBuf;
+    size_t mSphBufSize;
+    bool mSphParamsSent;
+    float mVoiceVolume;
     unsigned int mFmGain;
     uint32_t mFrames;
     EacStreamOut *mOut;
@@ -190,7 +250,10 @@ private:
 EacAudio::EacAudio()
     : mFd(-1), mStarted(false), mDlOn(false), mAllocated(false), mMicMute(false),
       mFmOn(false), mFmSpeaker(false), mSpkOn(false), mHpOn(false),
-      mOutDevices(AudioSystem::DEVICE_OUT_SPEAKER), mFmGain(kFmGain2[FM_GAIN2_STEPS - 1]),
+      mOutDevices(AudioSystem::DEVICE_OUT_SPEAKER), mMode(AudioSystem::MODE_NORMAL),
+      mInCall(false), mCallDev(0), mSphTx(-1), mSphRx(-1),
+      mSphBuf(0), mSphBufSize(0), mSphParamsSent(false), mVoiceVolume(1.0f),
+      mFmGain(kFmGain2[FM_GAIN2_STEPS - 1]),
       mFrames(0), mOut(0), mIn(0)
 {
     mFd = open("/dev/eac", O_RDWR);
@@ -370,7 +433,18 @@ void EacAudio::outputOpen(bool spk, bool hp)
 
 void EacAudio::setOutDevices(uint32_t devices)
 {
-    if (devices == 0 || devices == mOutDevices)
+    if (devices == 0)
+        return;
+    /* As stock doSetMode: the routing after setMode(IN_CALL) opens the call. */
+    if (mMode == AudioSystem::MODE_IN_CALL) {
+        mOutDevices = devices;
+        if (!mInCall)
+            callStart(sphDevice(devices));
+        else if (sphDevice(devices) != mCallDev)
+            callRoute(sphDevice(devices));
+        return;
+    }
+    if (devices == mOutDevices)
         return;
     LOGD("routing 0x%x", devices);
     mOutDevices = devices;
@@ -535,9 +609,413 @@ void EacAudio::setFmSpeaker(bool on)
     applyOutput();
 }
 
+/*
+ * Voice call, following the stock SpeechPhoneCallController and
+ * SpeechDriverLAD (libaudioflinger.so). The modem does the speech; the AP
+ * routes the mic to it and its downlink to the output over PCM2 at 16 kHz.
+ * Devices: 0 earpiece, 1 wired headset (headset mic), 2 speaker,
+ * 3 wired headphone (main mic).
+ */
+int EacAudio::sphDevice(uint32_t devices) const
+{
+    if (devices & AudioSystem::DEVICE_OUT_WIRED_HEADSET)
+        return 1;
+    if (devices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)
+        return 3;
+    if (devices & AudioSystem::DEVICE_OUT_SPEAKER)
+        return 2;
+    return 0;
+}
+
+static int sphMode(int dev)
+{
+    /* Stock speech mode: earpiece 0, headset 1, loudspeaker 2. */
+    return dev == 2 ? 2 : (dev == 0 ? 0 : 1);
+}
+
+bool EacAudio::sphOpen()
+{
+    int state = -1;
+
+    if (mSphTx >= 0)
+        return true;
+    mSphRx = open(CCCI_PCM_RX, O_RDWR);
+    mSphTx = open(CCCI_PCM_TX, O_RDWR);
+    if (mSphRx < 0 || mSphTx < 0) {
+        LOGE("open ccci_pcm failed errno %d", errno);
+        sphClose();
+        return false;
+    }
+    if (ioctl(mSphRx, CCCI_IOC_GET_MD_STATE, &state) < 0)
+        LOGW("modem state ioctl errno %d", errno);
+    /* Stock maps the shared buffer on the rx fd; parameters go through it. */
+    unsigned int size = 0;
+    if (ioctl(mSphRx, CCCI_IOC_SHARE_SIZE, &size) == 0 && size > 0) {
+        void *p = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, mSphRx, 0);
+        if (p != MAP_FAILED) {
+            mSphBuf = (unsigned char *)p;
+            mSphBufSize = size;
+        } else {
+            LOGE("ccci share mmap %u errno %d", size, errno);
+        }
+    }
+    LOGD("speech ccci open, modem state %d, share %u", state, mSphBufSize);
+    return true;
+}
+
+void EacAudio::sphClose()
+{
+    if (mSphBuf)
+        munmap(mSphBuf, mSphBufSize);
+    mSphBuf = 0;
+    mSphBufSize = 0;
+    if (mSphTx >= 0)
+        close(mSphTx);
+    if (mSphRx >= 0)
+        close(mSphRx);
+    mSphTx = mSphRx = -1;
+}
+
+int EacAudio::sphSend(unsigned int id, unsigned int p16, unsigned int p32, bool ack)
+{
+    unsigned int msg[4] = { 0xffffffff, (id << 16) | (p16 & 0xffff), 5, p32 };
+    struct pollfd pfd;
+    int i;
+
+    if (mSphTx < 0)
+        return -1;
+    if (write(mSphTx, msg, sizeof(msg)) != (ssize_t)sizeof(msg)) {
+        LOGE("speech msg 0x%x write errno %d", id, errno);
+        return -1;
+    }
+    if (!ack)
+        return 0;
+    pfd.fd = mSphRx;
+    pfd.events = POLLIN;
+    for (i = 0; i < 4; i++) {
+        unsigned int r[4];
+        pfd.revents = 0;
+        if (poll(&pfd, 1, 250) <= 0)
+            continue;
+        if (read(mSphRx, r, sizeof(r)) != (ssize_t)sizeof(r))
+            continue;
+        if ((r[1] >> 16) == (id | SPH_ACK))
+            return 0;
+        if ((r[1] >> 16) == SPH_PARAM_REQUEST)
+            mSphParamsSent = false;
+        LOGD("speech rx 0x%08x 0x%08x while waiting 0x%x", r[1], r[3], id);
+    }
+    LOGE("speech msg 0x%x: no ack", id);
+    return -1;
+}
+
+int EacAudio::sphSendParam(unsigned int id, const unsigned char *data, unsigned int len)
+{
+    unsigned char *p = mSphBuf + SPH_PARAM_OFFSET;
+    unsigned short hdr[3] = { 0xa2a2, 7, (unsigned short)len };
+
+    if (!mSphBuf || SPH_PARAM_OFFSET + 6 + len > mSphBufSize) {
+        LOGE("speech param 0x%x: no share buffer (%u)", id, mSphBufSize);
+        return -1;
+    }
+    memcpy(p, hdr, sizeof(hdr));
+    memcpy(p + 6, data, len);
+    return sphSend(id, len + 6, SPH_PARAM_OFFSET, true);
+}
+
+/* Stock SetAllSpeechEnhancementInfoToModem, answer to the modem's 0xAF70. */
+void EacAudio::sphParams()
+{
+    if (mSphParamsSent)
+        return;
+    if (sphSendParam(SPH_NB_PARAM, kSpeechParamNB, sizeof(kSpeechParamNB)) == 0 &&
+            sphSendParam(SPH_WB_PARAM, kSpeechParamWB, sizeof(kSpeechParamWB)) == 0) {
+        sphSend(SPH_ENH_MASK, 0xffbf, 0xffffffff, false);
+        mSphParamsSent = true;
+        LOGD("speech parameters sent");
+    }
+}
+
+/* Stock OpenModemSpeechControlFlow digital part, 16 kHz. */
+void EacAudio::callDigital(bool on)
+{
+    if (on) {
+        /* I03->O17, I04->O18 (ADC to modem), I14->O03/O04 (modem to DAC). */
+        afe(0x30, 1 << 13, 1 << 13);
+        afe(0x30, 1 << 16, 1 << 16);
+        afe(0x2c, 1 << 27, 1 << 27);
+        afe(0x30, 1, 1);
+        afe(0x120, 0, 1);
+        afe(0x114, 0xa0000, 0x1e0000);
+        afe(0x138, 0x03f87201, 0xffffffff);
+        afe(0x13c, 0x400, 0xc00);
+        afe(0x260, 0, 0xffffffff);
+        afe(0x264, 0, 0xffffffff);
+        afe(0x108, 0x33001823, 0xffffffff);
+        afe(0x10c, 0xf74f0000, 0xffffffff);
+        afe(0x34, 0x408, 0xffffffff);
+        afe(0x114, 1, 1);
+        afe(0x124, 1, 1);
+        afe(0x108, 1, 1);
+        afe(0x34, 1, 1);
+        afe(0x124, 1, 1);
+        afe(0x4c4, 0, 0x10);
+    } else {
+        afe(0x108, 0, 1);
+        afe(0x34, 0, 1);
+        afe(0x4c4, 0x10, 0x10);
+        afe(0x114, 0, 1);
+        afe(0x124, 0, 1);
+        afe(0x30, 0, 1 << 13);
+        afe(0x30, 0, 1 << 16);
+        afe(0x2c, 0, 1 << 27);
+        afe(0x30, 0, 1);
+    }
+}
+
+/* Uplink analog: stock AnalogOpen/Close for the main or headset mic. */
+void EacAudio::callMic(bool on, int dev)
+{
+    if (on) {
+        ana(0x10c, 0x100, 0x100);
+        ana(0x4028, 0x342f, 0xffff);
+        ana(0x4002, 0, 0x10);
+        ana(0x4016, 0, 0x300);
+        ana(0x4016, 0x300, 0x300);
+        ana(0x4000, 2, 2);
+        ana(0x700, 0x7800, 0x7f80);
+        ana(0x704, 0xf0, 0xff);
+        ana(0x706, 0, 0x100);
+        if (dev == 1) {
+            ana(0x700, 1, 0xf);
+            ana(0x706, 0, 0x200);
+            ana(0x702, 0x10, 0xf0);
+        } else {
+            ana(0x700, 0, 0xf);
+            ana(0x706, 0x200, 0x200);
+            ana(0x702, 0x40, 0xf0);
+        }
+        ana(0x702, 0x200, 0x700);
+        ana(0x700, 0x20, 0x70);
+        ana(0x710, 8, 8);
+        ana(0x700, 0x180, 0x180);
+        ana(0x704, 3, 3);
+        ana(0x700, SPH_MIC_PGA_FIELD << 4, 0x70);
+        ana(0x702, SPH_MIC_PGA_FIELD << 8, 0x700);
+    } else {
+        ana(0x700, 0, 0x180);
+        ana(0x704, 0, 3);
+        ana(0x700, 0x6000, 0x7f80);
+        ana(0x704, 0xc0, 0xff);
+        ana(0x706, 0, 0x100);
+        ana(0x700, 3, 0xf);
+        ana(0x706, 0, 0x200);
+        ana(0x702, 0x20, 0xf0);
+        ana(0x710, 0, 8);
+        ana(0x4000, 0, 2);
+        ana(0x10a, 0x100, 0x100);
+    }
+}
+
+/* Downlink analog: stock AnalogOpen/Close at 16 kHz for the call device. */
+void EacAudio::callOutput(bool on, int dev)
+{
+    bool hp = dev == 1 || dev == 3;
+    bool spk = dev == 2;
+
+    if (on) {
+        ana(0x10c, 0x100, 0x100);
+        ana(0x4024, 0x3330, 0xffff);
+        ana(0x4002, 4, 0xf);
+        if (hp)
+            ana(0x4014, 1, 1);
+        ana(0x4016, 0, 0x300);
+        ana(0x4016, 0x300, 0x300);
+        ana(0x4000, 1, 1);
+        if (hp) {
+            ana(0x70c, 0xf7f2, 0xffff);
+            ana(0x700, 0x7000, 0xf000);
+            ana(0x70a, 0x0014, 0xffff);
+            ana(0x708, 0x007c, 0xffff);
+            usleep(10000);
+            ana(0x70c, 0xf5ba, 0xffff);
+            ana(0x70a, 0x2214, 0xffff);
+            xioctl(SET_HEADPHONE_ON, 0, "hp");
+            return;
+        }
+        ana(0x70e, 0x2400, 0xffff);
+        ana(0x70c, 0xb7f6, 0xffff);
+        ana(0x700, 0x7000, 0xf000);
+        ana(0x708, 0x0014, 0xffff);
+        usleep(10000);
+        if (spk) {
+            ana(0x70e, 0x35b0, 0xffff);
+            ana(0x10c, 0x000e, 0x000e);
+            ana(0x056, 0x0214, 0xffff);
+            ana(0x064, 0x0400, 0xffff);
+            ana(0x052, 0x3008, 0xffff);
+            ana(0x052, 0x3009, 0xffff);
+            usleep(5000);
+            ana(0x052, 0x3001, 0xffff);
+            ana(0x06a, 0x0a00, 0xffff);
+            xioctl(SET_SPEAKER_ON, 0, "spk");
+        } else {
+            ana(0x70e, 0x25b0, 0xffff);
+            xioctl(SET_EARPIECE_ON, 0, "ear");
+        }
+    } else {
+        if (hp) {
+            xioctl(SET_HEADPHONE_OFF, 0, "hp_off");
+            ana(0x70a, 0x0014, 0xffff);
+            ana(0x70c, 0xf7f2, 0xffff);
+        } else {
+            if (spk) {
+                xioctl(SET_SPEAKER_OFF, 0, "spk_off");
+                ana(0x052, 0x0004, 0xffff);
+                ana(0x06a, 0x0000, 0xffff);
+                ana(0x10a, 0x000e, 0x000e);
+            }
+            xioctl(SET_EARPIECE_OFF, 0, "ear_off");
+            ana(0x70e, 0x2500, 0xffff);
+            ana(0x70e, 0x2400, 0xffff);
+        }
+        ana(0x708, 0x0000, 0xffff);
+        ana(0x70c, 0x37e2, 0xffff);
+        ana(0x4000, 0, 1);
+    }
+}
+
+/* Stock voice volume: 0.25 dB steps, analog buffer first, rest on the modem. */
+void EacAudio::callVolume()
+{
+    int deg, dl;
+
+    if (mVoiceVolume <= 0.0f)
+        deg = 64;
+    else
+        deg = (int)(-34.74 * log(mVoiceVolume) + 0.5) >> 2;
+    if (deg < 0)
+        deg = 0;
+    if (mCallDev == 1 || mCallDev == 3) {
+        int h = 7 - deg / 2;
+        if (h < 0) {
+            dl = -4 * (deg - 14);
+            h = 0;
+        } else {
+            dl = -4 * (deg & 1);
+        }
+        ana(0x70a, h << 12, 0x7000);
+        ana(0x70a, h << 8, 0x700);
+    } else {
+        if (mCallDev == 2) {
+            ana(0x064, 0xa00, 0xf00);
+            deg += 3;
+        }
+        if (deg < 15) {
+            int f = 15 - deg / 2;
+            ana(0x70e, (f < 8 ? 8 : f) << 4, 0xf0);
+            dl = -4 * (deg & 1);
+        } else {
+            ana(0x70e, 8 << 4, 0xf0);
+            dl = -4 * (deg - 14);
+        }
+    }
+    sphSend(SPH_DL_GAIN, dl, 0, false);
+    LOGD("call volume %.2f deg %d dl %d", mVoiceVolume, deg, dl);
+}
+
+void EacAudio::callStart(int dev)
+{
+    struct sph_ctrl st;
+
+    if (!sphOpen())
+        return;
+    sphParams();
+    /* Stock ForceAllStandby: the call takes the AFE and analog path. */
+    standbyOut();
+    memset(&st, 0, sizeof(st));
+    st.speech = 1;
+    xioctl(SET_AUDIO_STATE, (unsigned long)&st, "state");
+    xioctl(AUD_SET_CLOCK, 1, "clk");
+    xioctl(AUD_SET_ANA_CLOCK, 1, "ana_clk");
+    xioctl(AUD_SET_26MCLOCK, 1, "clk26");
+    callDigital(true);
+    afe(0x10, 1, 1);
+    sphSend(SPH_SIDETONE_GAIN, 0, 0, false);
+    callMic(true, dev);
+    sphSend(SPH_UL_GAIN, SPH_UL_DIGITAL, 0, false);
+    usleep(100000);
+    callOutput(true, dev);
+    mCallDev = dev;
+    mInCall = true;
+    callVolume();
+    /* PCM2 to the modem. */
+    afe(0x53c, 0x0e, 0xffffffff);
+    afe(0x53c, 1, 1);
+    sphSend(SPH_SAMPLE_RATE, SPH_RATE, 0, false);
+    sphSend(SPH_SPEECH_MODE, sphMode(dev), 0, true);
+    usleep(1000);
+    sphSend(SPH_SPEECH_ON, 0, 0, true);
+    if (mMicMute)
+        sphSend(SPH_UL_MUTE, 1, 0, false);
+    LOGD("call on, device %d", dev);
+}
+
+void EacAudio::callRoute(int dev)
+{
+    LOGD("call device %d -> %d", mCallDev, dev);
+    sphSend(SPH_DL_MUTE, 1, 0, false);
+    sphSend(SPH_UL_MUTE, 1, 0, false);
+    callOutput(false, mCallDev);
+    afe(0x53c, 0, 1);
+    callMic(false, mCallDev);
+    callDigital(false);
+    callDigital(true);
+    afe(0x10, 1, 1);
+    sphSend(SPH_SIDETONE_GAIN, 0, 0, false);
+    callMic(true, dev);
+    sphSend(SPH_UL_GAIN, SPH_UL_DIGITAL, 0, false);
+    usleep(100000);
+    callOutput(true, dev);
+    mCallDev = dev;
+    callVolume();
+    afe(0x53c, 0x0e, 0xffffffff);
+    afe(0x53c, 1, 1);
+    sphSend(SPH_SAMPLE_RATE, SPH_RATE, 0, false);
+    sphSend(SPH_SPEECH_MODE, sphMode(dev), 0, true);
+    sphSend(SPH_UL_MUTE, mMicMute ? 1 : 0, 0, false);
+    sphSend(SPH_DL_MUTE, 0, 0, false);
+}
+
+void EacAudio::callStop()
+{
+    struct sph_ctrl st;
+
+    callOutput(false, mCallDev);
+    afe(0x53c, 0, 1);
+    callMic(false, mCallDev);
+    callDigital(false);
+    sphSend(SPH_SPEECH_OFF, 0, 0, true);
+    if (!micOn())
+        afe(0x10, 0, 1);
+    xioctl(AUD_SET_ANA_CLOCK, 0, "ana_clk_off");
+    xioctl(AUD_SET_CLOCK, 0, "clk_off");
+    memset(&st, 0, sizeof(st));
+    xioctl(SET_AUDIO_STATE, (unsigned long)&st, "state");
+    mInCall = false;
+    sphClose();
+    LOGD("call off");
+}
+
 ssize_t EacAudio::writePcm(const void *buffer, size_t bytes)
 {
     ssize_t n;
+    if (mInCall) {
+        /* The call owns the DAC and the analog path; drop app sounds at
+         * the stream rate, as stock keeps playback in standby. */
+        usleep(bytes * 1000000ULL / (44100 * 4));
+        return bytes;
+    }
     if (start() != NO_ERROR)
         return -1;
     n = ::write(mFd, buffer, bytes);
@@ -601,7 +1079,9 @@ status_t EacStreamOut::getRenderPosition(uint32_t *dspFrames)
 
 status_t EacAudio::setVoiceVolume(float volume)
 {
-    (void)volume;
+    mVoiceVolume = volume;
+    if (mInCall)
+        callVolume();
     return NO_ERROR;
 }
 
@@ -614,12 +1094,17 @@ status_t EacAudio::setMasterVolume(float volume)
 status_t EacAudio::setMode(int mode)
 {
     LOGD("setMode %d", mode);
+    mMode = mode;
+    if (mode != AudioSystem::MODE_IN_CALL && mInCall)
+        callStop();
     return NO_ERROR;
 }
 
 status_t EacAudio::setMicMute(bool state)
 {
     mMicMute = state;
+    if (mInCall)
+        sphSend(SPH_UL_MUTE, state ? 1 : 0, 0, false);
     return NO_ERROR;
 }
 
