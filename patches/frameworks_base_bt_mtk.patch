@@ -468,7 +468,7 @@ index 50c34c254b6..a20da26679e 100644
  
  int register_android_server_BluetoothEventLoop(JNIEnv *env) {
 diff --git a/core/jni/android_server_BluetoothService.cpp b/core/jni/android_server_BluetoothService.cpp
-index be2e5f3c5c6..f8bc54ad6d4 100644
+index be2e5f3c5c6..ee77250a93f 100644
 --- a/core/jni/android_server_BluetoothService.cpp
 +++ b/core/jni/android_server_BluetoothService.cpp
 @@ -36,6 +36,17 @@
@@ -611,7 +611,20 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
-@@ -429,7 +510,16 @@ static jint getDeviceServiceChannelNative(JNIEnv *env, jobject object,
+@@ -402,6 +483,12 @@ static jboolean createPairedDeviceOutOfBandNative(JNIEnv *env, jobject object,
+ static jint getDeviceServiceChannelNative(JNIEnv *env, jobject object,
+                                           jstring path,
+                                           jstring pattern, jint attr_id) {
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return -1;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+     native_data_t *nat = get_native_data(env, object);
+@@ -429,7 +516,16 @@ static jint getDeviceServiceChannelNative(JNIEnv *env, jobject object,
  
  static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
                                             jstring address) {
@@ -628,7 +641,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
      jboolean result = JNI_FALSE;
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
-@@ -462,6 +552,12 @@ static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
+@@ -462,6 +558,12 @@ static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
  
  static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_path) {
      LOGV(__FUNCTION__);
@@ -641,7 +654,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      if (nat) {
-@@ -483,32 +579,53 @@ static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_p
+@@ -483,32 +585,53 @@ static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_p
  }
  
  static jint enableNative(JNIEnv *env, jobject object) {
@@ -701,7 +714,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -630,6 +747,20 @@ static jboolean setAuthorizationNative(JNIEnv *env, jobject object, jstring addr
+@@ -630,6 +753,20 @@ static jboolean setAuthorizationNative(JNIEnv *env, jobject object, jstring addr
  
  static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
                           jstring pin, int nativeData) {
@@ -722,7 +735,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -660,6 +791,14 @@ static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
+@@ -660,6 +797,14 @@ static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
  
  static jboolean cancelPairingUserInputNative(JNIEnv *env, jobject object,
                                              jstring address, int nativeData) {
@@ -737,7 +750,20 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -724,6 +863,63 @@ static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
+@@ -686,6 +831,12 @@ static jboolean cancelPairingUserInputNative(JNIEnv *env, jobject object,
+ static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
+                                                     jstring path)
+ {
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return NULL;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+     native_data_t *nat = get_native_data(env, object);
+@@ -724,6 +875,63 @@ static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
      return NULL;
  }
  
@@ -801,7 +827,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
-@@ -731,10 +927,20 @@ static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
+@@ -731,10 +939,20 @@ static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
      if (nat) {
          DBusMessage *msg, *reply;
          DBusError err;
@@ -823,7 +849,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
                                     DBUS_ADAPTER_IFACE, "GetProperties",
                                     DBUS_TYPE_INVALID);
          if (!reply) {
-@@ -771,6 +977,17 @@ static jboolean setAdapterPropertyNative(JNIEnv *env, jobject object, jstring ke
+@@ -771,6 +989,17 @@ static jboolean setAdapterPropertyNative(JNIEnv *env, jobject object, jstring ke
          const char *c_key = env->GetStringUTFChars(key, NULL);
          dbus_error_init(&err);
  
@@ -841,7 +867,20 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
          msg = dbus_message_new_method_call(BLUEZ_DBUS_BASE_IFC,
                                             get_adapter_path(env, object),
                                             DBUS_ADAPTER_IFACE, "SetProperty");
-@@ -892,6 +1109,12 @@ static jboolean setDevicePropertyBooleanNative(JNIEnv *env, jobject object,
+@@ -835,6 +1064,12 @@ static jboolean setAdapterPropertyBooleanNative(JNIEnv *env, jobject object, jst
+ 
+ static jboolean setDevicePropertyNative(JNIEnv *env, jobject object, jstring path,
+                                                jstring key, void *value, jint type) {
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+     native_data_t *nat = get_native_data(env, object);
+@@ -892,6 +1127,12 @@ static jboolean setDevicePropertyBooleanNative(JNIEnv *env, jobject object,
  static jboolean createDeviceNative(JNIEnv *env, jobject object,
                                                  jstring address) {
      LOGV(__FUNCTION__);
@@ -854,7 +893,20 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
-@@ -959,6 +1182,12 @@ static jboolean discoverServicesNative(JNIEnv *env, jobject object,
+@@ -923,6 +1164,12 @@ static jboolean createDeviceNative(JNIEnv *env, jobject object,
+ static jboolean discoverServicesNative(JNIEnv *env, jobject object,
+                                                jstring path, jstring pattern) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
+@@ -959,6 +1206,12 @@ static jboolean discoverServicesNative(JNIEnv *env, jobject object,
  static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
          jstring name, jlong uuidMsb, jlong uuidLsb, jshort channel) {
      LOGV(__FUNCTION__);
@@ -867,7 +919,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      if (nat) {
-@@ -984,6 +1213,12 @@ static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
+@@ -984,6 +1237,12 @@ static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
  
  static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint handle) {
      LOGV(__FUNCTION__);
@@ -880,7 +932,7 @@ index be2e5f3c5c6..f8bc54ad6d4 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      if (nat) {
-@@ -1002,6 +1237,12 @@ static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint hand
+@@ -1002,6 +1261,12 @@ static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint hand
  static jboolean setLinkTimeoutNative(JNIEnv *env, jobject object, jstring object_path,
                                       jint num_slots) {
      LOGV(__FUNCTION__);
