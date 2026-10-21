@@ -112,6 +112,7 @@ public:
     virtual unsigned int getInputFramesLost() const { return 0; }
 
     static bool supportedRate(uint32_t rate) { return rate >= 8000 && VUL_RATE % rate == 0; }
+    bool started() const { return mStarted; }
 
 private:
     status_t start();
@@ -152,6 +153,7 @@ public:
     status_t start();
     void enableDl();
     status_t standbyOut();
+    bool micOn() const { return mIn != 0 && mIn->started(); }
     void setFm(bool on);
     void setFmVolume(int index, int max);
     void setFmSpeaker(bool on);
@@ -403,16 +405,22 @@ void EacAudio::applyOutput()
     LOGD("output speaker %d headphone %d", spk, hp);
 }
 
+/*
+ * DL1 and the mic (VUL) share AFE_DAC_CON0 bit 0 (AFE on) and AFE_IRQ_CON:
+ * IRQ1 (bit 0, rate in bits 4-7) is DL1, IRQ2 (bit 1, rate in bits 8-11)
+ * is the mic. The output path touches only its own bits, so a sound played
+ * or stopped while recording no longer stalls AudioRecord.
+ */
 void EacAudio::enableDl()
 {
-    afe(0x10, 0, 0x3);
+    afe(0x10, 0, micOn() ? 0x2 : 0x3);
     afe(0x10, 0x2, 0x2);
     afe(0x34, 0x1, 0x1);
     /* AFE_DAC_CON0 bit 10 is set on stock; it is not named in AudDrv_Afe.h. */
     afe(0x10, 0x400, 0x400);
     afe(0x108, 0x1, 0x1);
     afe(0x124, 0x1, 0x1);
-    afe(0x3a0, 0x91, 0xffffffff);
+    afe(0x3a0, 0x91, 0xf1);
     afe(0x10, 0x1, 0x1);
     mDlOn = true;
 }
@@ -423,14 +431,14 @@ status_t EacAudio::standbyOut()
         return NO_ERROR;
     if (mFmOn) {
         /* FM keeps the AFE, DAC and amplifiers; only DL1 stops. */
-        afe(0x3a0, 0, 0xff);
+        afe(0x3a0, 0, 0x1);
         afe(0x10, 0, 0x2);
         mDlOn = false;
         xioctl(STANDBY_MEMIF_TYPE, MEM_DL1, "standby");
         return NO_ERROR;
     }
-    afe(0x3a0, 0, 0xff);
-    afe(0x10, 0, 0x3);
+    afe(0x3a0, 0, 0x1);
+    afe(0x10, 0, micOn() ? 0x2 : 0x3);
     mDlOn = false;
     xioctl(STANDBY_MEMIF_TYPE, MEM_DL1, "standby");
     outputClose();
