@@ -7,6 +7,9 @@ USE_CAMERA_STUB := true
 # allocates that); this tree's header says 0x48.
 BOARD_USES_MTK_CAMERA := true
 BOARD_MTK_CAMERA_SERVICE_SIZE := 104
+# The stock CameraClient registers a new preview heap after takePicture
+# without unregistering the old one; without this the preview drifts.
+BOARD_SURFACEFLINGER_REREGISTER_BUFFERS := true
 
 TARGET_NO_BOOTLOADER := true
 TARGET_NO_RADIOIMAGE := true

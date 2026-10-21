@@ -101,6 +101,12 @@ apply frameworks/base frameworks_base_camera_mtk_client.patch
 # convertirla a RGB565 antes de subir la textura.
 apply frameworks/base frameworks_base_surfaceflinger_yv12.patch
 
+# LayerBuffer: el CameraClient de stock registra un heap nuevo de preview
+# después de takePicture sin desregistrar el viejo; con
+# BOARD_SURFACEFLINGER_REREGISTER_BUFFERS se reemplaza (si no, -38 y la
+# preview se corre hasta reabrir la cámara).
+apply frameworks/base frameworks_base_surfaceflinger_reregister.patch
+
 # Phone: si accept() del socket SCO falla, reintentar a los 30 s. Sin SCO de
 # Bluez en el kernel fallaba al instante y com.android.phone giraba al 43%.
 apply packages/apps/Phone packages_apps_Phone_sco_retry.patch
