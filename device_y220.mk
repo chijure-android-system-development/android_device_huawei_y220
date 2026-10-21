@@ -48,6 +48,7 @@ PRODUCT_PACKAGES += \
     lights.y220 \
     libaudio \
     libbt_mtk_gap \
+    libbt_mtk_opp \
     FMRadio
 
 # Same place as the Y210 tree. This is the AOSP base (Settings, Phone,

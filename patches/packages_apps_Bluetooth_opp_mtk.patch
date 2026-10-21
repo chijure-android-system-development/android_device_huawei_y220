@@ -1,0 +1,492 @@
+diff --git a/src/com/android/bluetooth/opp/BluetoothOppMtk.java b/src/com/android/bluetooth/opp/BluetoothOppMtk.java
+new file mode 100644
+index 00000000..e372b645
+--- /dev/null
++++ b/src/com/android/bluetooth/opp/BluetoothOppMtk.java
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (C) 2026 The CyanogenMod Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.bluetooth.opp;
++
++import android.util.Log;
++
++/**
++ * Object Push through a MediaTek mtkbt stack. Devices without BlueZ RFCOMM
++ * ship libbt_mtk_opp, which drives the vendor OBEX client; elsewhere the
++ * library is absent and isAvailable() is false.
++ */
++final class BluetoothOppMtk {
++    private static final String TAG = "BluetoothOppMtk";
++
++    /* bt_opp_ui_event ids, client group. */
++    static final int ENABLE_SUCCESS = 1;
++    static final int ENABLE_FAIL = 2;
++    static final int CONNECTED = 5;
++    static final int PROGRESS_UPDATE = 6;   // sent bytes, total bytes
++    static final int PUSH_START = 7;        // total bytes
++    static final int PUSH_SUCCESS = 8;
++    static final int PUSH_FAIL = 9;         // OBEX response code
++    static final int DISCONNECT = 16;
++
++    interface Listener {
++        void onEvent(int event, String[] params);
++    }
++
++    private static final boolean sAvailable;
++    private static Listener sListener;
++
++    static {
++        boolean ok = false;
++        try {
++            System.loadLibrary("bt_mtk_opp");
++            ok = true;
++        } catch (UnsatisfiedLinkError e) {
++            // Not an mtkbt device.
++        }
++        sAvailable = ok;
++    }
++
++    private BluetoothOppMtk() {
++    }
++
++    static boolean isAvailable() {
++        return sAvailable;
++    }
++
++    static synchronized void setListener(Listener l) {
++        sListener = l;
++    }
++
++    /* Called from the libextopp listen thread. */
++    private static void onEvent(int event, String[] params) {
++        Listener l;
++        synchronized (BluetoothOppMtk.class) {
++            l = sListener;
++        }
++        if (l != null) {
++            l.onEvent(event, params);
++        } else {
++            Log.w(TAG, "event " + event + " with no session");
++        }
++    }
++
++    static native boolean enableNative();
++    static native boolean connectNative(String address);
++    static native boolean pushNative(String mimeType, String name, String path);
++    static native void abortNative();
++    static native void disconnectNative();
++}
+diff --git a/src/com/android/bluetooth/opp/BluetoothOppMtkClientSession.java b/src/com/android/bluetooth/opp/BluetoothOppMtkClientSession.java
+new file mode 100644
+index 00000000..1a946191
+--- /dev/null
++++ b/src/com/android/bluetooth/opp/BluetoothOppMtkClientSession.java
+@@ -0,0 +1,364 @@
++/*
++ * Copyright (C) 2026 The CyanogenMod Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.bluetooth.opp;
++
++import javax.obex.ResponseCodes;
++
++import android.content.ContentValues;
++import android.content.Context;
++import android.database.Cursor;
++import android.net.Uri;
++import android.os.Environment;
++import android.os.Handler;
++import android.os.Message;
++import android.os.PowerManager;
++import android.os.PowerManager.WakeLock;
++import android.provider.MediaStore;
++import android.util.Log;
++
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.util.concurrent.LinkedBlockingQueue;
++import java.util.concurrent.TimeUnit;
++
++/**
++ * Outbound session over mtkbt (see BluetoothOppMtk). mtkbt does the SDP,
++ * RFCOMM and OBEX itself and reads the file by path, so this only feeds it
++ * paths and reports progress the way BluetoothOppObexClientSession does.
++ */
++public class BluetoothOppMtkClientSession implements BluetoothOppObexSession,
++        BluetoothOppMtk.Listener {
++    private static final String TAG = "BtOppMtkClient";
++    /* A few lines per transfer; mtkbt problems are hard to see otherwise. */
++    private static final boolean D = true;
++
++    /* Remote pairing or the receiver's accept prompt can take this long. */
++    private static final int CONNECT_TIMEOUT_S = 60;
++    private static final int PUSH_TIMEOUT_S = 120;
++    private static final int DISCONNECT_TIMEOUT_S = 5;
++
++    private final Context mContext;
++    private final String mAddress;
++    private final LinkedBlockingQueue<Object[]> mEvents = new LinkedBlockingQueue<Object[]>();
++    private final Object mShareLock = new Object();
++    private Handler mCallback;
++    private ClientThread mThread;
++    private BluetoothOppShareInfo mInfo;
++    private volatile boolean mInterrupted;
++    private volatile boolean mPushing;
++
++    public BluetoothOppMtkClientSession(Context context, String address) {
++        mContext = context;
++        mAddress = address;
++    }
++
++    public void start(Handler handler) {
++        if (D) Log.d(TAG, "Start for " + mAddress);
++        mCallback = handler;
++        mThread = new ClientThread();
++        mThread.start();
++    }
++
++    public void stop() {
++        if (D) Log.d(TAG, "Stop");
++        mInterrupted = true;
++        if (mPushing) {
++            BluetoothOppMtk.abortNative();
++        }
++        if (mThread != null) {
++            mThread.interrupt();
++            mThread = null;
++        }
++    }
++
++    public void addShare(BluetoothOppShareInfo share) {
++        synchronized (mShareLock) {
++            mInfo = share;
++            mShareLock.notifyAll();
++        }
++    }
++
++    public void unblock() {
++        // Not used for client session
++    }
++
++    public void onEvent(int event, String[] params) {
++        mEvents.offer(new Object[] {event, params});
++    }
++
++    /* Waits for one of the given events; null on timeout or interrupt. */
++    private Object[] waitEvent(int timeoutS, int... events) {
++        long deadline = System.currentTimeMillis() + timeoutS * 1000L;
++        try {
++            while (true) {
++                long left = deadline - System.currentTimeMillis();
++                if (left <= 0) {
++                    return null;
++                }
++                Object[] ev = mEvents.poll(left, TimeUnit.MILLISECONDS);
++                if (ev == null) {
++                    return null;
++                }
++                int id = (Integer)ev[0];
++                if (id == BluetoothOppMtk.PROGRESS_UPDATE) {
++                    onProgress((String[])ev[1]);
++                }
++                for (int e : events) {
++                    if (id == e) {
++                        return ev;
++                    }
++                }
++            }
++        } catch (InterruptedException e) {
++            return null;
++        }
++    }
++
++    private void onProgress(String[] params) {
++        BluetoothOppShareInfo info = mInfo;
++        if (info == null || params == null || params.length < 1) {
++            return;
++        }
++        ContentValues values = new ContentValues();
++        try {
++            values.put(BluetoothShare.CURRENT_BYTES, Long.parseLong(params[0]));
++        } catch (NumberFormatException e) {
++            return;
++        }
++        mContext.getContentResolver().update(
++                Uri.parse(BluetoothShare.CONTENT_URI + "/" + info.mId), values, null, null);
++    }
++
++    private class ClientThread extends Thread {
++        ClientThread() {
++            super("BtOpp MtkClientThread");
++        }
++
++        @Override
++        public void run() {
++            PowerManager pm = (PowerManager)mContext.getSystemService(Context.POWER_SERVICE);
++            WakeLock wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
++            wakeLock.acquire();
++
++            BluetoothOppMtk.setListener(BluetoothOppMtkClientSession.this);
++            boolean connected = false;
++            if (BluetoothOppMtk.enableNative()
++                    && waitEvent(3, BluetoothOppMtk.ENABLE_SUCCESS,
++                            BluetoothOppMtk.ENABLE_FAIL) != null
++                    && BluetoothOppMtk.connectNative(mAddress)) {
++                Object[] ev = waitEvent(CONNECT_TIMEOUT_S, BluetoothOppMtk.CONNECTED,
++                        BluetoothOppMtk.DISCONNECT);
++                connected = ev != null && (Integer)ev[0] == BluetoothOppMtk.CONNECTED;
++            }
++            if (D) Log.d(TAG, "connected " + connected);
++
++            /* BluetoothOppTransfer reads the last share from MSG_SESSION_COMPLETE. */
++            BluetoothOppShareInfo last = null;
++            while (!mInterrupted) {
++                BluetoothOppShareInfo info;
++                synchronized (mShareLock) {
++                    while (mInfo == null && !mInterrupted) {
++                        try {
++                            mShareLock.wait();
++                        } catch (InterruptedException e) {
++                            break;
++                        }
++                    }
++                    info = mInfo;
++                    mInfo = null;
++                }
++                if (info == null || mInterrupted) {
++                    break;
++                }
++                last = info;
++                int status = connected ? sendShare(info) : BluetoothShare.STATUS_CONNECTION_ERROR;
++                Constants.updateShareStatus(mContext, info.mId, status);
++                Message msg = Message.obtain(mCallback);
++                if (status == BluetoothShare.STATUS_SUCCESS) {
++                    msg.what = BluetoothOppObexSession.MSG_SHARE_COMPLETE;
++                } else {
++                    msg.what = BluetoothOppObexSession.MSG_SESSION_ERROR;
++                    info.mStatus = status;
++                }
++                msg.obj = info;
++                msg.sendToTarget();
++                if (status != BluetoothShare.STATUS_SUCCESS) {
++                    break;
++                }
++            }
++
++            if (connected) {
++                BluetoothOppMtk.disconnectNative();
++                waitEvent(DISCONNECT_TIMEOUT_S, BluetoothOppMtk.DISCONNECT);
++            }
++            BluetoothOppMtk.setListener(null);
++            if (wakeLock.isHeld()) {
++                wakeLock.release();
++            }
++            Message msg = Message.obtain(mCallback);
++            msg.what = BluetoothOppObexSession.MSG_SESSION_COMPLETE;
++            msg.obj = last;
++            msg.sendToTarget();
++        }
++    }
++
++    private int sendShare(BluetoothOppShareInfo info) {
++        BluetoothOppSendFileInfo fileInfo = BluetoothOppSendFileInfo.generateFileInfo(
++                mContext, info.mUri, info.mMimetype, info.mDestination);
++        if (fileInfo.mInputStream != null) {
++            try {
++                fileInfo.mInputStream.close();
++            } catch (IOException e) {
++                // ignore
++            }
++        }
++        if (fileInfo.mFileName == null || fileInfo.mLength == 0) {
++            return fileInfo.mStatus != 0 ? fileInfo.mStatus : BluetoothShare.STATUS_FILE_ERROR;
++        }
++
++        Uri contentUri = Uri.parse(BluetoothShare.CONTENT_URI + "/" + info.mId);
++        ContentValues values = new ContentValues();
++        values.put(BluetoothShare.FILENAME_HINT, fileInfo.mFileName);
++        values.put(BluetoothShare.TOTAL_BYTES, fileInfo.mLength);
++        values.put(BluetoothShare.MIMETYPE, fileInfo.mMimetype);
++        values.put(BluetoothShare.CURRENT_BYTES, 0);
++        values.put(BluetoothShare.STATUS, BluetoothShare.STATUS_RUNNING);
++        mContext.getContentResolver().update(contentUri, values, null, null);
++
++        /* mtkbt opens the file itself, so it needs a path it can read. */
++        File tmp = null;
++        String path = filePath(Uri.parse(info.mUri));
++        if (path == null) {
++            tmp = copyToSdcard(Uri.parse(info.mUri), fileInfo.mFileName);
++            if (tmp == null) {
++                return BluetoothShare.STATUS_FILE_ERROR;
++            }
++            path = tmp.getAbsolutePath();
++        }
++        if (D) Log.d(TAG, "push " + fileInfo.mFileName + " (" + fileInfo.mMimetype + ") from "
++                + path);
++
++        int status;
++        mPushing = true;
++        if (!BluetoothOppMtk.pushNative(fileInfo.mMimetype, fileInfo.mFileName, path)) {
++            status = BluetoothShare.STATUS_OBEX_DATA_ERROR;
++        } else {
++            Object[] ev = waitEvent(PUSH_TIMEOUT_S, BluetoothOppMtk.PUSH_SUCCESS,
++                    BluetoothOppMtk.PUSH_FAIL, BluetoothOppMtk.DISCONNECT);
++            status = pushStatus(ev);
++        }
++        mPushing = false;
++        if (tmp != null) {
++            tmp.delete();
++        }
++        if (status == BluetoothShare.STATUS_SUCCESS) {
++            values = new ContentValues();
++            values.put(BluetoothShare.CURRENT_BYTES, fileInfo.mLength);
++            mContext.getContentResolver().update(contentUri, values, null, null);
++        }
++        return status;
++    }
++
++    /* Same mapping as BluetoothOppObexClientSession.sendFile(). */
++    private int pushStatus(Object[] ev) {
++        if (mInterrupted) {
++            return BluetoothShare.STATUS_CANCELED;
++        }
++        if (ev == null || (Integer)ev[0] == BluetoothOppMtk.DISCONNECT) {
++            return BluetoothShare.STATUS_CONNECTION_ERROR;
++        }
++        if ((Integer)ev[0] == BluetoothOppMtk.PUSH_SUCCESS) {
++            return BluetoothShare.STATUS_SUCCESS;
++        }
++        String[] params = (String[])ev[1];
++        int code = -1;
++        if (params != null && params.length > 0) {
++            try {
++                code = Integer.parseInt(params[0]);
++            } catch (NumberFormatException e) {
++                // keep -1
++            }
++        }
++        Log.i(TAG, "Push failed, response " + code);
++        if (code == ResponseCodes.OBEX_HTTP_UNSUPPORTED_TYPE) {
++            return BluetoothShare.STATUS_NOT_ACCEPTABLE;
++        }
++        if (code == ResponseCodes.OBEX_HTTP_FORBIDDEN
++                || code == ResponseCodes.OBEX_HTTP_NOT_ACCEPTABLE) {
++            return BluetoothShare.STATUS_FORBIDDEN;
++        }
++        return BluetoothShare.STATUS_UNHANDLED_OBEX_CODE;
++    }
++
++    private String filePath(Uri u) {
++        if ("file".equals(u.getScheme())) {
++            return u.getPath();
++        }
++        Cursor c = null;
++        try {
++            c = mContext.getContentResolver().query(u,
++                    new String[] {MediaStore.MediaColumns.DATA}, null, null, null);
++            if (c != null && c.moveToFirst()) {
++                String path = c.getString(0);
++                if (path != null && new File(path).canRead()) {
++                    return path;
++                }
++            }
++        } catch (Exception e) {
++            // Provider without _data.
++        } finally {
++            if (c != null) {
++                c.close();
++            }
++        }
++        return null;
++    }
++
++    private File copyToSdcard(Uri u, String name) {
++        File dir = new File(Environment.getExternalStorageDirectory(), "bluetooth/.send");
++        if (!dir.isDirectory() && !dir.mkdirs()) {
++            Log.e(TAG, "No dir for " + name);
++            return null;
++        }
++        File out = new File(dir, name.replace('/', '_'));
++        InputStream in = null;
++        FileOutputStream os = null;
++        try {
++            in = mContext.getContentResolver().openInputStream(u);
++            os = new FileOutputStream(out);
++            byte[] buf = new byte[16384];
++            int n;
++            while ((n = in.read(buf)) > 0) {
++                os.write(buf, 0, n);
++            }
++            return out;
++        } catch (IOException e) {
++            Log.e(TAG, "Copy " + u + " failed: " + e);
++            out.delete();
++            return null;
++        } finally {
++            try {
++                if (in != null) in.close();
++                if (os != null) os.close();
++            } catch (IOException e) {
++                // ignore
++            }
++        }
++    }
++}
+diff --git a/src/com/android/bluetooth/opp/BluetoothOppTransfer.java b/src/com/android/bluetooth/opp/BluetoothOppTransfer.java
+index 3b763519..f1a799e6 100644
+--- a/src/com/android/bluetooth/opp/BluetoothOppTransfer.java
++++ b/src/com/android/bluetooth/opp/BluetoothOppTransfer.java
+@@ -445,7 +445,12 @@ public class BluetoothOppTransfer implements BluetoothOppBatch.BluetoothOppBatch
+         if (V) Log.v(TAG, "Start session for info " + mCurrentShare.mId + " for batch " +
+                 mBatch.mId);
+ 
+-        if (mBatch.mDirection == BluetoothShare.DIRECTION_OUTBOUND) {
++        if (mBatch.mDirection == BluetoothShare.DIRECTION_OUTBOUND
++                && BluetoothOppMtk.isAvailable()) {
++            if (V) Log.v(TAG, "Create mtkbt client session");
++            mSession = new BluetoothOppMtkClientSession(mContext,
++                    mBatch.mDestination.getAddress());
++        } else if (mBatch.mDirection == BluetoothShare.DIRECTION_OUTBOUND) {
+             if (V) Log.v(TAG, "Create Client session with transport " + mTransport.toString());
+             mSession = new BluetoothOppObexClientSession(mContext, mTransport);
+         } else if (mBatch.mDirection == BluetoothShare.DIRECTION_INBOUND) {
+@@ -494,6 +499,11 @@ public class BluetoothOppTransfer implements BluetoothOppBatch.BluetoothOppBatch
+ 
+     private void startConnectSession() {
+ 
++        if (BluetoothOppMtk.isAvailable()) {
++            /* mtkbt does the SDP lookup and the RFCOMM link itself. */
++            startObexSession();
++            return;
++        }
+         if (Constants.USE_TCP_DEBUG) {
+             mConnectThread = new SocketConnectThread("localhost", Constants.TCP_DEBUG_PORT, 0);
+             mConnectThread.start();
