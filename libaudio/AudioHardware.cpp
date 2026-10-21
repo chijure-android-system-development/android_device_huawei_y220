@@ -320,9 +320,9 @@ void EacAudio::outputClose()
         ana(0x06a, 0x0000, 0xffff);
         ana(0x70e, 0x2400, 0xffff);
     }
-    ana(0x70c, 0xf7f2, 0xffff);
-    ana(0x708, 0x0000, 0xffff);
-    ana(0x70c, 0x37e2, 0xffff);
+    /* Stock AnalogClose also clears AUDTOP_CON4 (0x708) and parks 0x70c, but
+     * the mic path (EacStreamIn::start) never sets 0x708 and records zeros
+     * without it. outputOpen() rewrites both, so leave them. */
     mSpkOn = mHpOn = false;
 }
 
