@@ -44,7 +44,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
 # Without it LightsService never writes lcd-backlight and the slider does nothing.
 PRODUCT_PACKAGES += \
     lights.y220 \
-    libaudio
+    libaudio \
+    libbt_mtk_gap
 
 # Same place as the Y210 tree. This is the AOSP base (Settings, Phone,
 # SystemUI, framework jars). Without it the zip only has the CM extras.

@@ -64,16 +64,9 @@ apply hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch
 # Settings scan: DORMANT sin asociación no debe bajar wlan0.
 apply frameworks/base frameworks_base_wifi_dormant.patch
 
-# Settings BT: POWERON por el socket de mtkbt. La trama está en libbt_mtk_gap.
-apply frameworks/base frameworks_base_bt_mtk_gap.patch
-
-# Discovery con mtkbt: startDiscovery manda DISCOVERY_REQ por libbt_mtk_gap y
-# un hilo lee bt.ext.adp y llama onDeviceFound/onPropertyChanged(Discovering).
-apply frameworks/base frameworks_base_bt_mtk_discovery.patch
-
-# Sin adaptador BlueZ, las llamadas D-Bus que no miraban la ruta abortaban
-# system_server (emparejar reiniciaba el teléfono). Ahora fallan.
-apply frameworks/base frameworks_base_bt_mtk_no_dbus_abort.patch
+# Puente único al driver libbt_mtk_gap del device tree: encendido, discovery,
+# pairing y guardas para no llamar D-Bus sin un adaptador BlueZ.
+apply frameworks/base frameworks_base_bt_mtk.patch
 
 # wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
 apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch

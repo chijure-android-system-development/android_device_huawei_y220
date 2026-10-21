@@ -1,0 +1,895 @@
+diff --git a/core/java/android/server/BluetoothEventLoop.java b/core/java/android/server/BluetoothEventLoop.java
+index 3df7a31df37..7c5d944ca17 100644
+--- a/core/java/android/server/BluetoothEventLoop.java
++++ b/core/java/android/server/BluetoothEventLoop.java
+@@ -156,6 +156,54 @@ class BluetoothEventLoop {
+         return isEventLoopRunningNative();
+     }
+ 
++    /* MediaTek stack: discovery events come from mtkbt, not from BlueZ. */
++    /* package */ void startMtk() {
++        startMtkEventLoopNative();
++    }
++
++    /* package */ void stopMtk() {
++        stopMtkEventLoopNative();
++    }
++
++    /*
++     * Pairing prompts and results from mtkbt. Same broadcasts as the BlueZ
++     * agent callbacks, but by address. The 0 stored as native data lets
++     * setPairingConfirmation/setPin find a pending request.
++     */
++    private void mtkPairingRequest(String address, int variant, int passkey) {
++        address = address.toUpperCase();
++        mPasskeyAgentRequestData.put(address, new Integer(0));
++        if (mBluetoothService.getBondState(address) != BluetoothDevice.BOND_BONDING) {
++            // The other side started it.
++            mBluetoothService.setBondState(address, BluetoothDevice.BOND_BONDING);
++        }
++        mWakeLock.acquire();
++        Intent intent = new Intent(BluetoothDevice.ACTION_PAIRING_REQUEST);
++        intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mAdapter.getRemoteDevice(address));
++        if (variant == BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION) {
++            intent.putExtra(BluetoothDevice.EXTRA_PASSKEY, passkey);
++        }
++        intent.putExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, variant);
++        mContext.sendBroadcast(intent, BLUETOOTH_ADMIN_PERM);
++        mWakeLock.release();
++    }
++
++    private void onMtkPasskeyConfirmation(String address, int passkey) {
++        mtkPairingRequest(address, BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION,
++                passkey);
++    }
++
++    private void onMtkPinRequest(String address) {
++        mtkPairingRequest(address, BluetoothDevice.PAIRING_VARIANT_PIN, 0);
++    }
++
++    private void onMtkBondResult(String address, int result) {
++        address = address.toUpperCase();
++        mPasskeyAgentRequestData.remove(address);
++        onCreatePairedDeviceResult(address, result == 0 ?
++                BluetoothDevice.BOND_SUCCESS : BluetoothDevice.UNBOND_REASON_AUTH_FAILED);
++    }
++
+     private void addDevice(String address, String[] properties) {
+         mBluetoothService.addRemoteDeviceProperties(address, properties);
+         String rssi = mBluetoothService.getRemoteDeviceProperty(address, "RSSI");
+@@ -661,5 +709,7 @@ class BluetoothEventLoop {
+     private native void startEventLoopNative();
+     private native void stopEventLoopNative();
+     private native boolean isEventLoopRunningNative();
++    private native void startMtkEventLoopNative();
++    private native void stopMtkEventLoopNative();
+     private native void cleanupNativeDataNative();
+ }
+diff --git a/core/java/android/server/BluetoothService.java b/core/java/android/server/BluetoothService.java
+index 544318fefd9..894ed8ea80e 100755
+--- a/core/java/android/server/BluetoothService.java
++++ b/core/java/android/server/BluetoothService.java
+@@ -84,6 +84,8 @@ public class BluetoothService extends IBluetooth.Stub {
+     private boolean mIsAirplaneSensitive;
+     private boolean mIsAirplaneToggleable;
+     private int mBluetoothState;
++    /* mtkbt is the radio: no BlueZ adapter and no PropertyChanged signals. */
++    private boolean mMtkStack;
+     private boolean mRestart = false;  // need to call enable() after disable()
+     private boolean mIsDiscovering;
+ 
+@@ -105,6 +107,10 @@ public class BluetoothService extends IBluetooth.Stub {
+     private static final int MESSAGE_FINISH_DISABLE = 2;
+     private static final int MESSAGE_UUID_INTENT = 3;
+     private static final int MESSAGE_AUTO_PAIRING_FAILURE_ATTEMPT_DELAY = 5;
++    private static final int MESSAGE_MTK_DISCOVERABLE_TIMEOUT = 6;
++
++    // mtkbt does not keep the local name across power cycles.
++    private static final String MTK_BLUETOOTH_NAME = "bluetooth_name";
+ 
+     // The time (in millisecs) to delay the pairing attempt after the first
+     // auto pairing attempt fails. We use an exponential delay with
+@@ -359,6 +365,9 @@ public class BluetoothService extends IBluetooth.Stub {
+             return;
+         }
+         mEventLoop.stop();
++        mEventLoop.stopMtk();
++        mHandler.removeMessages(MESSAGE_MTK_DISCOVERABLE_TIMEOUT);
++        mMtkStack = false;
+         tearDownNativeDataNative();
+         disableNative();
+ 
+@@ -521,6 +530,12 @@ public class BluetoothService extends IBluetooth.Stub {
+                     return;
+                 }
+                 break;
++            case MESSAGE_MTK_DISCOVERABLE_TIMEOUT:
++                // BlueZ ends the discoverable window itself; mtkbt does not.
++                if (isEnabledInternal()) {
++                    setScanMode(BluetoothAdapter.SCAN_MODE_CONNECTABLE, -1);
++                }
++                break;
+             }
+         }
+     };
+@@ -533,8 +548,11 @@ public class BluetoothService extends IBluetooth.Stub {
+             mSaveSetting = saveSetting;
+         }
+         public void run() {
+-            boolean res = (enableNative() == 0);
+-            if (res) {
++            int nativeResult = enableNative();
++            /* 2: mtkbt answered POWERON_CNF. BlueZ is not the radio. */
++            boolean mtkStack = (nativeResult == 2);
++            boolean res = (nativeResult == 0) || mtkStack;
++            if (res && !mtkStack) {
+                 int retryCount = 2;
+                 boolean running = false;
+                 while ((retryCount-- > 0) && !running) {
+@@ -561,9 +579,13 @@ public class BluetoothService extends IBluetooth.Stub {
+ 
+ 
+             if (res) {
+-                if (!setupNativeDataNative()) {
++                if (!mtkStack && !setupNativeDataNative()) {
+                     return;
+                 }
++                if (mtkStack) {
++                    mMtkStack = true;
++                    mEventLoop.startMtk();
++                }
+                 if (mSaveSetting) {
+                     persistBluetoothOnSetting(true);
+                 }
+@@ -571,8 +593,10 @@ public class BluetoothService extends IBluetooth.Stub {
+                 mBondState.readAutoPairingData();
+                 mBondState.loadBondState();
+                 initProfileState();
+-                mHandler.sendMessageDelayed(
+-                        mHandler.obtainMessage(MESSAGE_REGISTER_SDP_RECORDS, 1, -1), 3000);
++                if (!mtkStack) {
++                    mHandler.sendMessageDelayed(
++                            mHandler.obtainMessage(MESSAGE_REGISTER_SDP_RECORDS, 1, -1), 3000);
++                }
+ 
+                 // Log bluetooth on to battery stats.
+                 long ident = Binder.clearCallingIdentity();
+@@ -590,12 +614,18 @@ public class BluetoothService extends IBluetooth.Stub {
+                               BluetoothAdapter.STATE_ON :
+                               BluetoothAdapter.STATE_OFF);
+ 
+-            if (res) {
++            if (res && !mtkStack) {
+                 // Update mode
+                 String[] propVal = {"Pairable", getProperty("Pairable")};
+                 mEventLoop.onPropertyChanged(propVal);
+             }
+ 
++            if (res && mtkStack) {
++                // What bluetoothd restores on its own: the name, and connectable.
++                setPropertyString("Name", getMtkName());
++                setPropertyBoolean("Pairable", true);
++            }
++
+             if (mIsAirplaneSensitive && isAirplaneModeOn() && !mIsAirplaneToggleable) {
+                 disable(false);
+             }
+@@ -1032,7 +1062,37 @@ public class BluetoothService extends IBluetooth.Stub {
+         if (name == null) {
+             return false;
+         }
+-        return setPropertyString("Name", name);
++        if (!setPropertyString("Name", name)) {
++            return false;
++        }
++        if (mMtkStack) {
++            long ident = Binder.clearCallingIdentity();
++            Settings.Secure.putString(mContext.getContentResolver(), MTK_BLUETOOTH_NAME, name);
++            Binder.restoreCallingIdentity(ident);
++        }
++        return true;
++    }
++
++    private String getMtkName() {
++        String name = Settings.Secure.getString(mContext.getContentResolver(),
++                MTK_BLUETOOTH_NAME);
++        return name != null ? name : android.os.Build.MODEL;
++    }
++
++    /* mtkbt confirmed a property; report it the way BlueZ's signal would. */
++    private void mtkPropertyChanged(String key, String value) {
++        if (!mMtkStack) return;
++        if (key.equals("DiscoverableTimeout")) {
++            setProperty(key, value);
++        } else {
++            // EnableThread sets Name/Pairable before boot completes when
++            // mtkbt is already up; the cache is updated before the broadcast.
++            try {
++                mEventLoop.onPropertyChanged(new String[] {key, value});
++            } catch (IllegalStateException e) {
++                Log.w(TAG, "mtkPropertyChanged " + key + ": " + e.getMessage());
++            }
++        }
+     }
+ 
+     //TODO(): setPropertyString, setPropertyInteger, setPropertyBoolean
+@@ -1042,19 +1102,25 @@ public class BluetoothService extends IBluetooth.Stub {
+     private boolean setPropertyString(String key, String value) {
+         mContext.enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+         if (!isEnabledInternal()) return false;
+-        return setAdapterPropertyStringNative(key, value);
++        if (!setAdapterPropertyStringNative(key, value)) return false;
++        mtkPropertyChanged(key, value);
++        return true;
+     }
+ 
+     private boolean setPropertyInteger(String key, int value) {
+         mContext.enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+         if (!isEnabledInternal()) return false;
+-        return setAdapterPropertyIntegerNative(key, value);
++        if (!setAdapterPropertyIntegerNative(key, value)) return false;
++        mtkPropertyChanged(key, Integer.toString(value));
++        return true;
+     }
+ 
+     private boolean setPropertyBoolean(String key, boolean value) {
+         mContext.enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
+         if (!isEnabledInternal()) return false;
+-        return setAdapterPropertyBooleanNative(key, value ? 1 : 0);
++        if (!setAdapterPropertyBooleanNative(key, value ? 1 : 0)) return false;
++        mtkPropertyChanged(key, value ? "true" : "false");
++        return true;
+     }
+ 
+     /**
+@@ -1100,6 +1166,13 @@ public class BluetoothService extends IBluetooth.Stub {
+         setPropertyBoolean("Pairable", pairable);
+         setPropertyBoolean("Discoverable", discoverable);
+ 
++        if (mMtkStack) {
++            mHandler.removeMessages(MESSAGE_MTK_DISCOVERABLE_TIMEOUT);
++            if (discoverable && duration > 0) {
++                mHandler.sendEmptyMessageDelayed(MESSAGE_MTK_DISCOVERABLE_TIMEOUT,
++                        duration * 1000L);
++            }
++        }
+         return true;
+     }
+ 
+diff --git a/core/jni/Android.mk b/core/jni/Android.mk
+index bb01d9d1f48..4f8c0dca152 100644
+--- a/core/jni/Android.mk
++++ b/core/jni/Android.mk
+@@ -142,7 +142,10 @@ LOCAL_SRC_FILES:= \
+ 	android_backup_FileBackupHelperBase.cpp \
+ 	android_backup_BackupHelperDispatcher.cpp \
+ 	android_content_res_ObbScanner.cpp \
+-    android_content_res_Configuration.cpp
++    android_content_res_Configuration.cpp \
++    $(BOARD_CAMERA_CLIENT_SRC)
++
++LOCAL_CFLAGS += $(BOARD_CAMERA_CLIENT_CFLAGS)
+ 
+ ifeq ($(BOARD_HAVE_FM_RADIO),true)
+     ## There's a difference. BOARD_HAVE_FM_RADIO enabled the runtime
+@@ -254,6 +257,12 @@ LOCAL_CFLAGS += -DHAVE_BLUETOOTH
+ LOCAL_SHARED_LIBRARIES += libbluedroid libdbus
+ endif
+ 
++ifeq ($(BOARD_HAVE_BLUETOOTH_MTK),true)
++LOCAL_CFLAGS += -DHAVE_BLUETOOTH_MTK
++LOCAL_C_INCLUDES += $(BOARD_BLUETOOTH_MTK_INCLUDES)
++LOCAL_SHARED_LIBRARIES += libbt_mtk_gap
++endif
++
+ ifneq ($(TARGET_SIMULATOR),true)
+ LOCAL_SHARED_LIBRARIES += \
+ 	libdl
+diff --git a/core/jni/android_server_BluetoothEventLoop.cpp b/core/jni/android_server_BluetoothEventLoop.cpp
+index 50c34c254b6..a20da26679e 100644
+--- a/core/jni/android_server_BluetoothEventLoop.cpp
++++ b/core/jni/android_server_BluetoothEventLoop.cpp
+@@ -26,6 +26,7 @@
+ 
+ #include <stdio.h>
+ #include <string.h>
++#include <pthread.h>
+ #include <stdlib.h>
+ #include <errno.h>
+ #include <unistd.h>
+@@ -1280,6 +1281,158 @@ done:
+ }
+ #endif
+ 
++#ifdef HAVE_BLUETOOTH_MTK
++#include "bt_mtk_gap.h"
++
++/*
++ * mtkbt (MediaTek stack) is the radio, not BlueZ. Its indications arrive on
++ * bt.ext.adp; turn them into the calls BluetoothEventLoop gets from the
++ * BlueZ D-Bus loop, so Settings sees ACTION_FOUND and DISCOVERY_*.
++ */
++static JavaVM *s_mtk_vm;
++static jobject s_mtk_obj;
++static pthread_t s_mtk_thread;
++static volatile int s_mtk_run;
++static jmethodID s_mtk_onPasskeyConfirmation;
++static jmethodID s_mtk_onPinRequest;
++static jmethodID s_mtk_onBondResult;
++
++static void mtk_discovering(JNIEnv *env, bool on)
++{
++    jclass stringClass = env->FindClass("java/lang/String");
++    jobjectArray arr = env->NewObjectArray(2, stringClass, NULL);
++    env->SetObjectArrayElement(arr, 0, env->NewStringUTF("Discovering"));
++    env->SetObjectArrayElement(arr, 1, env->NewStringUTF(on ? "true" : "false"));
++    env->CallVoidMethod(s_mtk_obj, method_onPropertyChanged, arr);
++    env->DeleteLocalRef(arr);
++    env->DeleteLocalRef(stringClass);
++}
++
++static void mtk_device_found(JNIEnv *env, const btmtk_gap_event_t *ev)
++{
++    char cod[16], rssi[16];
++    const char *kv[16];
++    int n = 0;
++
++    snprintf(cod, sizeof(cod), "%u", ev->cod);
++    snprintf(rssi, sizeof(rssi), "%d", ev->rssi);
++    kv[n++] = "Address"; kv[n++] = ev->addr;
++    kv[n++] = "Class";   kv[n++] = cod;
++    kv[n++] = "RSSI";    kv[n++] = rssi;
++    kv[n++] = "Paired";  kv[n++] = "false";
++    if (ev->name[0]) {
++        kv[n++] = "Name";  kv[n++] = ev->name;
++        kv[n++] = "Alias"; kv[n++] = ev->name;
++    }
++
++    jclass stringClass = env->FindClass("java/lang/String");
++    jobjectArray arr = env->NewObjectArray(n, stringClass, NULL);
++    for (int i = 0; i < n; i++) {
++        jstring s = env->NewStringUTF(kv[i]);
++        env->SetObjectArrayElement(arr, i, s);
++        env->DeleteLocalRef(s);
++    }
++    jstring addr = env->NewStringUTF(ev->addr);
++    env->CallVoidMethod(s_mtk_obj, method_onDeviceFound, addr, arr);
++    env->DeleteLocalRef(addr);
++    env->DeleteLocalRef(arr);
++    env->DeleteLocalRef(stringClass);
++}
++
++static void *mtk_event_thread(void *)
++{
++    JNIEnv *env;
++    JavaVMAttachArgs args;
++    char name[] = "BT mtkbt events";
++
++    args.version = JNI_VERSION_1_4;
++    args.name = name;
++    args.group = NULL;
++    s_mtk_vm->AttachCurrentThread(&env, &args);
++
++    while (s_mtk_run) {
++        btmtk_gap_event_t ev;
++        if (btmtk_gap_event_wait(&ev, 500) <= 0)
++            continue;
++        switch (ev.type) {
++        case BTMTK_GAP_EV_DISCOVERY_STARTED:
++            mtk_discovering(env, true);
++            break;
++        case BTMTK_GAP_EV_DISCOVERY_FINISHED:
++            mtk_discovering(env, false);
++            break;
++        case BTMTK_GAP_EV_DEVICE_FOUND:
++            mtk_device_found(env, &ev);
++            break;
++        case BTMTK_GAP_EV_USER_CONFIRM:
++        case BTMTK_GAP_EV_PIN_REQUEST:
++        case BTMTK_GAP_EV_BOND_RESULT: {
++            jstring addr = env->NewStringUTF(ev.addr);
++            if (ev.type == BTMTK_GAP_EV_USER_CONFIRM)
++                env->CallVoidMethod(s_mtk_obj, s_mtk_onPasskeyConfirmation, addr,
++                                    (jint)ev.passkey);
++            else if (ev.type == BTMTK_GAP_EV_PIN_REQUEST)
++                env->CallVoidMethod(s_mtk_obj, s_mtk_onPinRequest, addr);
++            else
++                env->CallVoidMethod(s_mtk_obj, s_mtk_onBondResult, addr, (jint)ev.result);
++            env->DeleteLocalRef(addr);
++            break;
++        }
++        }
++        if (env->ExceptionCheck()) {
++            LOGE("exception in mtkbt event handler");
++            env->ExceptionDescribe();
++            env->ExceptionClear();
++        }
++    }
++
++    s_mtk_vm->DetachCurrentThread();
++    return NULL;
++}
++
++static void startMtkEventLoopNative(JNIEnv *env, jobject object)
++{
++    if (s_mtk_run)
++        return;
++    if (btmtk_gap_events_open() != 0)
++        return;
++    {
++        jclass clazz = env->GetObjectClass(object);
++        s_mtk_onPasskeyConfirmation = env->GetMethodID(clazz, "onMtkPasskeyConfirmation",
++                                                       "(Ljava/lang/String;I)V");
++        s_mtk_onPinRequest = env->GetMethodID(clazz, "onMtkPinRequest",
++                                              "(Ljava/lang/String;)V");
++        s_mtk_onBondResult = env->GetMethodID(clazz, "onMtkBondResult",
++                                              "(Ljava/lang/String;I)V");
++        env->DeleteLocalRef(clazz);
++    }
++    env->GetJavaVM(&s_mtk_vm);
++    s_mtk_obj = env->NewGlobalRef(object);
++    s_mtk_run = 1;
++    if (pthread_create(&s_mtk_thread, NULL, mtk_event_thread, NULL) != 0) {
++        LOGE("cannot start the mtkbt event thread");
++        s_mtk_run = 0;
++        env->DeleteGlobalRef(s_mtk_obj);
++        s_mtk_obj = NULL;
++        btmtk_gap_events_close();
++    }
++}
++
++static void stopMtkEventLoopNative(JNIEnv *env, jobject object)
++{
++    if (!s_mtk_run)
++        return;
++    s_mtk_run = 0;
++    pthread_join(s_mtk_thread, NULL);
++    btmtk_gap_events_close();
++    env->DeleteGlobalRef(s_mtk_obj);
++    s_mtk_obj = NULL;
++}
++#else
++static void startMtkEventLoopNative(JNIEnv *env, jobject object) {}
++static void stopMtkEventLoopNative(JNIEnv *env, jobject object) {}
++#endif
++
+ static JNINativeMethod sMethods[] = {
+      /* name, signature, funcPtr */
+     {"classInitNative", "()V", (void *)classInitNative},
+@@ -1287,7 +1440,9 @@ static JNINativeMethod sMethods[] = {
+     {"cleanupNativeDataNative", "()V", (void *)cleanupNativeDataNative},
+     {"startEventLoopNative", "()V", (void *)startEventLoopNative},
+     {"stopEventLoopNative", "()V", (void *)stopEventLoopNative},
+-    {"isEventLoopRunningNative", "()Z", (void *)isEventLoopRunningNative}
++    {"isEventLoopRunningNative", "()Z", (void *)isEventLoopRunningNative},
++    {"startMtkEventLoopNative", "()V", (void *)startMtkEventLoopNative},
++    {"stopMtkEventLoopNative", "()V", (void *)stopMtkEventLoopNative}
+ };
+ 
+ int register_android_server_BluetoothEventLoop(JNIEnv *env) {
+diff --git a/core/jni/android_server_BluetoothService.cpp b/core/jni/android_server_BluetoothService.cpp
+index be2e5f3c5c6..f8bc54ad6d4 100644
+--- a/core/jni/android_server_BluetoothService.cpp
++++ b/core/jni/android_server_BluetoothService.cpp
+@@ -36,6 +36,17 @@
+ #include <sys/ioctl.h>
+ #include <fcntl.h>
+ 
++#ifdef HAVE_BLUETOOTH_MTK
++#include "bt_mtk_gap.h"
++#endif
++
++#ifdef HAVE_BLUETOOTH_MTK
++/* mtkbt has no property events; what was last confirmed lives here. */
++static char s_mtk_name[60] = "Android";
++static int s_mtk_scan_mode;
++static char s_mtk_discoverable_timeout[12] = "120";
++#endif
++
+ #ifdef HAVE_BLUETOOTH
+ #include <dbus/dbus.h>
+ #include <bluedroid/bluetooth.h>
+@@ -198,6 +209,10 @@ static jstring getAdapterPathNative(JNIEnv *env, jobject object) {
+ 
+ static jboolean startDiscoveryNative(JNIEnv *env, jobject object) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* Results come back through BluetoothEventLoop's mtkbt thread. */
++    return btmtk_gap_discovery_start() == 0 ? JNI_TRUE : JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     DBusMessage *msg = NULL;
+     DBusMessage *reply = NULL;
+@@ -212,6 +227,11 @@ static jboolean startDiscoveryNative(JNIEnv *env, jobject object) {
+ 
+     dbus_error_init(&err);
+ 
++    /* A null path makes libdbus abort the process. */
++    if (get_adapter_path(env, object) == NULL) {
++        goto done;
++    }
++
+     /* Compose the command */
+     msg = dbus_message_new_method_call(BLUEZ_DBUS_BASE_IFC,
+                                        get_adapter_path(env, object),
+@@ -244,6 +264,10 @@ done:
+ 
+ static void stopDiscoveryNative(JNIEnv *env, jobject object) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    btmtk_gap_discovery_cancel();
++    return;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     DBusMessage *msg = NULL;
+     DBusMessage *reply = NULL;
+@@ -259,6 +283,11 @@ static void stopDiscoveryNative(JNIEnv *env, jobject object) {
+         goto done;
+     }
+ 
++    /* A null path makes libdbus abort the process. */
++    if (get_adapter_path(env, object) == NULL) {
++        goto done;
++    }
++
+     /* Compose the command */
+     msg = dbus_message_new_method_call(BLUEZ_DBUS_BASE_IFC,
+                                        get_adapter_path(env, object),
+@@ -290,6 +319,12 @@ done:
+ 
+ static jbyteArray readAdapterOutOfBandDataNative(JNIEnv *env, jobject object) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return NULL;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     DBusError err;
+@@ -328,9 +363,49 @@ static jbyteArray readAdapterOutOfBandDataNative(JNIEnv *env, jobject object) {
+     return NULL;
+ }
+ 
++#ifdef HAVE_BLUETOOTH_MTK
++/* Run fn(address) with the Java string; -1 if it cannot be read. */
++static int mtk_with_address(JNIEnv *env, jstring address,
++                            int (*fn)(const char *, void *), void *arg)
++{
++    const char *c_address;
++    int ret;
++
++    if (address == NULL)
++        return -1;
++    c_address = env->GetStringUTFChars(address, NULL);
++    if (c_address == NULL)
++        return -1;
++    ret = fn(c_address, arg);
++    env->ReleaseStringUTFChars(address, c_address);
++    return ret;
++}
++
++static int mtk_bond(const char *a, void *) { return btmtk_gap_bond(a); }
++static int mtk_bond_cancel(const char *a, void *) { return btmtk_gap_bond_cancel(a); }
++static int mtk_confirm(const char *a, void *arg) {
++    return btmtk_gap_user_confirm(a, *(int *)arg);
++}
++static int mtk_pin(const char *a, void *arg) {
++    const char *pin = (const char *)arg;
++    return btmtk_gap_pin_reply(a, (const unsigned char *)pin, pin ? strlen(pin) : 0);
++}
++#endif
++
+ static jboolean createPairedDeviceNative(JNIEnv *env, jobject object,
+                                          jstring address, jint timeout_ms) {
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt asks for confirmation and reports the result through
++     * BluetoothEventLoop's mtkbt thread. */
++    return mtk_with_address(env, address, mtk_bond, NULL) == 0 ? JNI_TRUE : JNI_FALSE;
++#endif
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
+@@ -367,6 +442,12 @@ static jboolean createPairedDeviceNative(JNIEnv *env, jobject object,
+ static jboolean createPairedDeviceOutOfBandNative(JNIEnv *env, jobject object,
+                                                 jstring address, jint timeout_ms) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
+@@ -429,7 +510,16 @@ static jint getDeviceServiceChannelNative(JNIEnv *env, jobject object,
+ 
+ static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
+                                            jstring address) {
++#ifdef HAVE_BLUETOOTH_MTK
++    return mtk_with_address(env, address, mtk_bond_cancel, NULL) == 0 ? JNI_TRUE : JNI_FALSE;
++#endif
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+     jboolean result = JNI_FALSE;
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+@@ -462,6 +552,12 @@ static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
+ 
+ static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_path) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     if (nat) {
+@@ -483,32 +579,53 @@ static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_p
+ }
+ 
+ static jint enableNative(JNIEnv *env, jobject object) {
+-#ifdef HAVE_BLUETOOTH
++#ifdef HAVE_BLUETOOTH_MTK
++    LOGV(__FUNCTION__);
++    /* 2 tells Java to skip the BlueZ event loop. 0 is the BlueZ success code. */
++    s_mtk_scan_mode = 0;
++    return btmtk_gap_power_on() == 0 ? 2 : -1;
++#elif defined(HAVE_BLUETOOTH)
+     LOGV(__FUNCTION__);
+     return bt_enable();
+-#endif
++#else
+     return -1;
++#endif
+ }
+ 
+ static jint disableNative(JNIEnv *env, jobject object) {
+-#ifdef HAVE_BLUETOOTH
++#ifdef HAVE_BLUETOOTH_MTK
++    LOGV(__FUNCTION__);
++    return btmtk_gap_power_off() == 0 ? 0 : -1;
++#elif defined(HAVE_BLUETOOTH)
+     LOGV(__FUNCTION__);
+     return bt_disable();
+-#endif
++#else
+     return -1;
++#endif
+ }
+ 
+ static jint isEnabledNative(JNIEnv *env, jobject object) {
+-#ifdef HAVE_BLUETOOTH
++#ifdef HAVE_BLUETOOTH_MTK
++    LOGV(__FUNCTION__);
++    /* No HCI device. Java tracks STATE_ON itself. */
++    return 0;
++#elif defined(HAVE_BLUETOOTH)
+     LOGV(__FUNCTION__);
+     return bt_is_enabled();
+-#endif
++#else
+     return -1;
++#endif
+ }
+ 
+ static jboolean setPairingConfirmationNative(JNIEnv *env, jobject object,
+                                              jstring address, bool confirm,
+                                              int nativeData) {
++#ifdef HAVE_BLUETOOTH_MTK
++    {
++        int accept = confirm ? 1 : 0;
++        return mtk_with_address(env, address, mtk_confirm, &accept) == 0 ? JNI_TRUE : JNI_FALSE;
++    }
++#endif
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+     native_data_t *nat = get_native_data(env, object);
+@@ -630,6 +747,20 @@ static jboolean setAuthorizationNative(JNIEnv *env, jobject object, jstring addr
+ 
+ static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
+                          jstring pin, int nativeData) {
++#ifdef HAVE_BLUETOOTH_MTK
++    {
++        const char *c_pin;
++        int ret;
++        if (pin == NULL)
++            return JNI_FALSE;
++        c_pin = env->GetStringUTFChars(pin, NULL);
++        if (c_pin == NULL)
++            return JNI_FALSE;
++        ret = mtk_with_address(env, address, mtk_pin, (void *)c_pin);
++        env->ReleaseStringUTFChars(pin, c_pin);
++        return ret == 0 ? JNI_TRUE : JNI_FALSE;
++    }
++#endif
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+     native_data_t *nat = get_native_data(env, object);
+@@ -660,6 +791,14 @@ static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
+ 
+ static jboolean cancelPairingUserInputNative(JNIEnv *env, jobject object,
+                                             jstring address, int nativeData) {
++#ifdef HAVE_BLUETOOTH_MTK
++    {
++        /* The prompt may have been a confirmation or a PIN; refuse both. */
++        int accept = 0;
++        mtk_with_address(env, address, mtk_pin, NULL);
++        return mtk_with_address(env, address, mtk_confirm, &accept) == 0 ? JNI_TRUE : JNI_FALSE;
++    }
++#endif
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+     native_data_t *nat = get_native_data(env, object);
+@@ -724,6 +863,63 @@ static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
+     return NULL;
+ }
+ 
++#ifdef HAVE_BLUETOOTH_MTK
++static jobjectArray mtkAdapterProperties(JNIEnv *env) {
++    char addr[18];
++    const char *kv[12];
++    jclass stringClass;
++    jobjectArray arr;
++    int i;
++
++    if (btmtk_gap_local_address(addr, sizeof(addr)) != 0)
++        return NULL;
++    kv[0] = "Address";
++    kv[1] = addr;
++    kv[2] = "Name";
++    kv[3] = s_mtk_name;
++    kv[4] = "Pairable";
++    kv[5] = (s_mtk_scan_mode & BTMTK_GAP_SCAN_PAGE) ? "true" : "false";
++    kv[6] = "Discoverable";
++    kv[7] = (s_mtk_scan_mode & BTMTK_GAP_SCAN_INQUIRY) ? "true" : "false";
++    kv[8] = "DiscoverableTimeout";
++    kv[9] = s_mtk_discoverable_timeout;
++    kv[10] = "Devices";
++    kv[11] = "0";
++    stringClass = env->FindClass("java/lang/String");
++    arr = env->NewObjectArray(12, stringClass, NULL);
++    for (i = 0; i < 12; i++)
++        env->SetObjectArrayElement(arr, i, env->NewStringUTF(kv[i]));
++    return arr;
++}
++
++static jboolean mtkSetAdapterProperty(const char *key, void *value, int type) {
++    if (!strcmp(key, "Name") && type == DBUS_TYPE_STRING) {
++        const char *name = *(const char **)value;
++        if (btmtk_gap_set_local_name(name) != 0)
++            return JNI_FALSE;
++        strncpy(s_mtk_name, name, sizeof(s_mtk_name) - 1);
++        s_mtk_name[sizeof(s_mtk_name) - 1] = 0;
++        return JNI_TRUE;
++    }
++    if ((!strcmp(key, "Pairable") || !strcmp(key, "Discoverable")) &&
++            type == DBUS_TYPE_BOOLEAN) {
++        int bit = !strcmp(key, "Pairable") ? BTMTK_GAP_SCAN_PAGE : BTMTK_GAP_SCAN_INQUIRY;
++        int mode = *(int *)value ? (s_mtk_scan_mode | bit) : (s_mtk_scan_mode & ~bit);
++        if (mode != s_mtk_scan_mode && btmtk_gap_set_scan_mode(mode) != 0)
++            return JNI_FALSE;
++        s_mtk_scan_mode = mode;
++        return JNI_TRUE;
++    }
++    if (!strcmp(key, "DiscoverableTimeout") && type == DBUS_TYPE_UINT32) {
++        /* mtkbt has no timer for this; BluetoothService ends the window. */
++        snprintf(s_mtk_discoverable_timeout, sizeof(s_mtk_discoverable_timeout),
++                 "%u", *(unsigned int *)value);
++        return JNI_TRUE;
++    }
++    return JNI_FALSE;
++}
++#endif
++
+ static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
+ #ifdef HAVE_BLUETOOTH
+     LOGV(__FUNCTION__);
+@@ -731,10 +927,20 @@ static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
+     if (nat) {
+         DBusMessage *msg, *reply;
+         DBusError err;
++        const char *adapter_path;
+         dbus_error_init(&err);
+ 
++        adapter_path = get_adapter_path(env, object);
++        if (adapter_path == NULL) {
++#ifdef HAVE_BLUETOOTH_MTK
++            return mtkAdapterProperties(env);
++#else
++            return NULL;
++#endif
++        }
++
+         reply = dbus_func_args_timeout(env,
+-                                   nat->conn, -1, get_adapter_path(env, object),
++                                   nat->conn, -1, adapter_path,
+                                    DBUS_ADAPTER_IFACE, "GetProperties",
+                                    DBUS_TYPE_INVALID);
+         if (!reply) {
+@@ -771,6 +977,17 @@ static jboolean setAdapterPropertyNative(JNIEnv *env, jobject object, jstring ke
+         const char *c_key = env->GetStringUTFChars(key, NULL);
+         dbus_error_init(&err);
+ 
++        if (get_adapter_path(env, object) == NULL) {
++#ifdef HAVE_BLUETOOTH_MTK
++            jboolean ret = mtkSetAdapterProperty(c_key, value, type);
++            env->ReleaseStringUTFChars(key, c_key);
++            return ret;
++#else
++            env->ReleaseStringUTFChars(key, c_key);
++            return JNI_FALSE;
++#endif
++        }
++
+         msg = dbus_message_new_method_call(BLUEZ_DBUS_BASE_IFC,
+                                            get_adapter_path(env, object),
+                                            DBUS_ADAPTER_IFACE, "SetProperty");
+@@ -892,6 +1109,12 @@ static jboolean setDevicePropertyBooleanNative(JNIEnv *env, jobject object,
+ static jboolean createDeviceNative(JNIEnv *env, jobject object,
+                                                 jstring address) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
+@@ -959,6 +1182,12 @@ static jboolean discoverServicesNative(JNIEnv *env, jobject object,
+ static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
+         jstring name, jlong uuidMsb, jlong uuidLsb, jshort channel) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return -1;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     if (nat) {
+@@ -984,6 +1213,12 @@ static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
+ 
+ static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint handle) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     if (nat) {
+@@ -1002,6 +1237,12 @@ static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint hand
+ static jboolean setLinkTimeoutNative(JNIEnv *env, jobject object, jstring object_path,
+                                      jint num_slots) {
+     LOGV(__FUNCTION__);
++#ifdef HAVE_BLUETOOTH_MTK
++    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
++     * makes libdbus abort system_server. */
++    if (get_adapter_path(env, object) == NULL)
++        return JNI_FALSE;
++#endif
+ #ifdef HAVE_BLUETOOTH
+     native_data_t *nat = get_native_data(env, object);
+     if (nat) {
