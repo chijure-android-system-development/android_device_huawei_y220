@@ -602,6 +602,16 @@ int btmtk_gap_event_wait(btmtk_gap_event_t *ev, int timeout_ms)
         return 0;
     n -= offsetof(ilm_struct, ilm_data);
 
+    if (ilm.msg_id == MSG_ID_BT_BM_BONDING_RESULT_IND ||
+            ilm.msg_id == MSG_ID_BT_BM_SECURITY_USER_CONFIRM_IND) {
+        /* TEMP: dump to find the remote class of device. */
+        char hex[3 * 40 + 1];
+        int i, m = n < 40 ? n : 40;
+        for (i = 0; i < m; i++)
+            snprintf(hex + 3 * i, 4, "%02x ", ilm.ilm_data[i]);
+        hex[3 * m] = 0;
+        LOGI("msg %lu (%d): %s", ilm.msg_id, n, hex);
+    }
     switch (ilm.msg_id) {
     case MSG_ID_BT_BM_DISCOVERY_RESULT_IND:
     case MSG_ID_BT_BM_DISCOVERY_UPDATE_IND:
