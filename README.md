@@ -261,7 +261,10 @@ reemplazarlo (`system:wifi 0660`).
 
 ## Bluetooth
 
-No prenderlo desde Ajustes. El toggle deja `system_server` en un bucle.
+Stack `mtkbt` de stock, sin BlueZ (el kernel no tiene `CONFIG_BT`). Encender,
+buscar, emparejar en los dos sentidos, nombre/visible y enviar archivos
+funcionan; recibir archivos, audio y manos libres no. Mensajes, offsets y
+pendientes en [`docs/BLUETOOTH_NOTES.md`](docs/BLUETOOTH_NOTES.md).
 
 La dirección de fábrica ya está en `mtd2` (registro `BT_Addr`, 30 bytes,
 no es la de fábrica `00:00:46:65:72:01`). Se copió, sin escribir la
@@ -275,25 +278,26 @@ partición, a los dos archivos que el stack lee:
 `nvram_daemon` no está corriendo. No arrancarlo: si el archivo no está,
 puede volver a grabar el valor por defecto en la partición.
 
-`libbt_mtk_gap` manda `MSG_ID_BT_POWERON_REQ` (100) al socket
-`/dev/socket/bt.int.adp` y espera `MSG_ID_BT_POWERON_CNF` (145). Ajustes,
-si la respuesta es 0 o 1, salta el event loop de BlueZ y marca el estado
-encendido. En el teléfono la prueba fue esta:
+- `libbt_mtk_gap`: GAP por `bt.int.adp` (encendido, búsqueda, nombre,
+  visible, clase `0x5a020c`, emparejamiento, nombre del remoto).
+- `frameworks_base_bt_mtk.patch`: conecta esos eventos con
+  `BluetoothService`/`BluetoothEventLoop` y protege todas las llamadas D-Bus
+  sin adaptador BlueZ (con ruta nula libdbus aborta `system_server`).
+- `libbt_mtk_opp` + `packages_apps_Bluetooth_opp_mtk.patch`: la app de CM7
+  envía archivos por `mtkbt` con la `libextopp.so` de stock.
+- `tools/opptest`: envío por OPP sin la app, para probar `mtkbt`.
 
-- `mtkbt`: `Read Nvram data fails` y `mtk_bt_enable: ret=-1`.
-- Igual contestó `POWERON_CNF` con `result=0`. El cliente lo tomó como
-  éxito (`BTBM_ADP_SUCCESS` también es 0).
-- `initProfileState` pidió las propiedades del adaptador. No hay path de
-  BlueZ. `dbus_message_new_method_call` aborta el proceso (`SIGSEGV`,
-  `deadbaad`) y Zygote vuelve a levantar la interfaz. En el arranque,
-  `SystemServer` lee `bluetooth_on` y llama a `enable()` otra vez.
-- dmesg no tiene panic. El cierre es `BT_close`, `WMT turn off BT OK` y
-  el PMIC de BT abajo.
+## Radio FM
 
-`bluetooth_on` se dejó en 0. El binario que está en el teléfono es el que
-hace ese abort. El parche ya trae la guarda del path nulo, pero esa
-revisión no se instaló: el rebuild no llegó a linkar. Aunque se instale,
-`result=0` no se puede aceptar mientras `mtk_bt_enable` devuelva -1.
+Funciona con la app FMRadio de stock rehecha por `FMRadio/build-fmradio.sh`
+y la ruta FM digital en `libaudio`: sintonía, búsqueda, volumen, auriculares
+y altavoz. Ver [`docs/FM_NOTES.md`](docs/FM_NOTES.md).
+
+## Hora por red
+
+Stock no trae `/etc/gps.conf`. Sin él, `GpsLocationProvider` pide la hora NTP
+a un host nulo (loopback IPv6, sin IPv6 en este kernel) y reintenta cada
+5 min. `gps.conf` del árbol solo pone `NTP_SERVER=pool.ntp.org`.
 
 ## Radio
 
@@ -413,8 +417,12 @@ una y AudioFlinger remuestrea. El `read()` del driver no bloquea.
 La tabla de tasas del AFE es 8k=0, 16k=4, 32k=8, 44.1k=9, 48k=10; el enum
 de `AudDrv_Afe.h` (44100=7) no corresponde al hardware.
 
-Falta: auricular y audífonos, voz en llamadas (`setMode` solo loguea),
-volumen, y grabar mientras suena algo (comparten registros `AUDTOP`).
+Auriculares, selección de salida, grabar mientras suena algo y la ruta FM:
+ver [`docs/AUDIO_NOTES.md`](docs/AUDIO_NOTES.md). Falta: voz en llamadas
+(`setMode` solo loguea) y volumen de música por hardware.
+
+Cámara (vista previa tras la foto, resolución, cómo capturar log y
+pantalla): [`docs/CAMERA_NOTES.md`](docs/CAMERA_NOTES.md).
 
 ## Sensores
 
