@@ -31,7 +31,8 @@ PRODUCT_COPY_FILES += \
     device/huawei/y220/apns-conf.xml:system/etc/apns-conf.xml \
     device/huawei/y220/gps.conf:system/etc/gps.conf \
     device/huawei/y220/FMRadio/com.mediatek.fmradio.xml:system/etc/permissions/com.mediatek.fmradio.xml \
-    device/huawei/y220/egl.cfg:system/lib/egl/egl.cfg
+    device/huawei/y220/egl.cfg:system/lib/egl/egl.cfg \
+    device/huawei/y220/keylayout/ACCDET.kl:system/usr/keylayout/ACCDET.kl
 
 PRODUCT_COPY_FILES += \
     device/huawei/y220/permissions/handheld_core_hardware.xml:system/etc/permissions/handheld_core_hardware.xml \
