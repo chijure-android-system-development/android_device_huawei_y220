@@ -1341,4 +1341,7 @@
   <apn carrier="Claro UY MMS" mcc="748" mnc="10" apn="mms.ctimovil.com.uy" user="ctimms" password="ctimms999" mmsc="http://mms.ctimovil.com.uy" mmsproxy="170.051.255.240" mmsport="9201" type="mms" />
   <!-- Y220-U05: Peru. CM7 has no mcc 716 entry. -->
   <apn carrier="Claro PE" mcc="716" mnc="10" apn="claro.pe" user="claro" password="claro" authtype="1" type="default,supl" />
+  <apn carrier="Claro PE MMS" mcc="716" mnc="10" apn="mms.claro.pe" user="claro" password="claro" mmsc="http://claro/servlets/mms" mmsproxy="192.168.231.30" mmsport="80" authtype="1" type="mms" />
+  <apn carrier="Movistar INTERNET" mcc="716" mnc="06" apn="movistar.pe" user="movistar@datos" password="movistar" authtype="1" type="default,supl" />
+  <apn carrier="Movistar MMS" mcc="716" mnc="06" apn="mms.movistar.pe" user="movistar@mms" password="movistar" mmsc="http://mmsc.telefonicamovistar.com.pe:8088/mms/" mmsproxy="200.4.196.118" mmsport="8080" authtype="1" type="mms" />
 </apns>
