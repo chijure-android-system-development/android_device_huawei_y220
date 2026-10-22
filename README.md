@@ -582,7 +582,7 @@ carga se queda estable (se suspende con la pantalla apagada) y mantener el
 botón de encendido hace que `ipod` reinicie a Android. Hasta `#94` el kernel
 se colgaba a los ~10 s por un `panic()` de diagnóstico que había quedado en
 `battery_common.c` (ver el README del kernel), y había que sacar la batería.
-Desconectar el cargador (servicio `shutdown`) no se probó.
+Desconectar el cargador apaga el teléfono (servicio `shutdown`).
 
 Para depurar: `touch /data/misc/ipod_save_log` hace que `ipod` escriba
 `/data/misc/ipod_log`; en modo carga no hay adb y UBIFS pierde lo que no se
