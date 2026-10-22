@@ -3,7 +3,7 @@
 MediaTek MT6572, panel ILI9488 320x480, NAND UBIFS. No es el Y210.
 
 El teléfono corre CM7 instalado desde el zip de este árbol
-(`cm-7-20261022`) con el kernel `#94` (boot flasheado aparte el 2026-10-22) y el recovery TWRP 3.1.1-0.1. Algunos
+(`cm-7-20261022`) con el kernel `#95` (boot flasheado aparte el 2026-10-22) y el recovery TWRP 3.1.1-0.1. Algunos
 cambios posteriores se probaron con actualización puntual sobre `/system` y
 quedan documentados abajo.
 
@@ -11,7 +11,7 @@ quedan documentados abajo.
 
 `lunch cyanogen_y220-eng` selecciona el producto. `breakfast y220` elige
 `eng` aunque `timed_build.sh` pida `userdebug`. El `kernel` prebuilt es el
-`#94` (3848368 bytes, netfilter, sin interfaz de firmware táctil), con sus módulos en `prebuilt/modules`.
+`#95` (3848496 bytes, netfilter, sin interfaz de firmware táctil), con sus módulos en `prebuilt/modules`.
 `prebuilt/ramdisk-stock.img` es el ramdisk de boot de stock (612053 bytes,
 gzip cpio, sin cabecera MTK); solo lo usa `pack-bootimg.sh`. El boot del zip
 lleva el ramdisk de CM7 (`init.rc` de este árbol).
@@ -577,14 +577,12 @@ Para entrar: apagar, desconectar, esperar la pantalla negra y conectar. Si
 se apaga con el cargador ya conectado, el LK reinicia en modo normal
 (`boot_reason=4`) y arranca Android.
 
-Probado el 2026-10-22: aparece la animación de carga. Pendiente:
-
-- Mantener el botón de encendido no arranca Android. `ipod` encuentra el
-  teclado (`mtk-kpd` coincide con `kpd`), pero a los ~3 s suelta su wakelock
-  y los volcados de diagnóstico se cortan ahí: lo probable es que el sistema
-  se suspenda y la pulsación no llegue a `ipod` (stock y su kernel no se
-  compararon en este punto). Hay que salir sacando la batería.
-- Desconectar el cargador (servicio `shutdown`) no se probó.
+Probado el 2026-10-22 con el kernel `#95`: aparece la animación, el modo
+carga se queda estable (se suspende con la pantalla apagada) y mantener el
+botón de encendido hace que `ipod` reinicie a Android. Hasta `#94` el kernel
+se colgaba a los ~10 s por un `panic()` de diagnóstico que había quedado en
+`battery_common.c` (ver el README del kernel), y había que sacar la batería.
+Desconectar el cargador (servicio `shutdown`) no se probó.
 
 Para depurar: `touch /data/misc/ipod_save_log` hace que `ipod` escriba
 `/data/misc/ipod_log`; en modo carga no hay adb y UBIFS pierde lo que no se
