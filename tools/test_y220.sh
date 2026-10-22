@@ -291,12 +291,17 @@ if section bt "BLUETOOTH"; then
         echo "$_bad" | sed 's/^[^:]*: //' | sort | uniq -c | head -5 | while read -r l; do detail "$l"; done
     fi
     # Perfiles BlueZ (OPP, SCO, RFCOMM, PAN) abren sockets AF_BLUETOOTH; el
-    # kernel MTK no tiene BlueZ, mtkbt lleva los perfiles.
+    # kernel MTK no tiene BlueZ, mtkbt lleva los perfiles. Los servidores de
+    # AOSP que reintentan sin socket son conocidos: SCO (manos libres), el
+    # listener OPP (recibir archivos) y PBAP. Otro componente es nuevo.
     _af=$(grep -E "Address family not supported|Pan operation failed" "$LC" | grep " E/" | sed -E 's/^[^E]*E\/([^(]*)\(.*/\1/' | sort | uniq -c)
-    if [[ -z "$_af" ]]; then pass "Perfiles sin errores de socket"; \
+    _af_new=$(echo "$_af" | grep -vE "bluetooth_ScoSocket.cpp|BtOppRfcommListener|BluetoothPbapService" | grep .)
+    if [[ -z "$_af_new" ]]; then
+        pass "Perfiles BT: solo los servidores BlueZ conocidos sin socket"
+        [[ -n "$_af" ]] && echo "$_af" | while read -r l; do detail "conocido: $l"; done
     else
-        fail "Perfiles BT (sockets BlueZ)" "AF_BLUETOOTH no soportado"
-        echo "$_af" | while read -r l; do detail "$l"; done
+        fail "Perfiles BT (sockets BlueZ)" "AF_BLUETOOTH en un componente nuevo"
+        echo "$_af_new" | while read -r l; do detail "$l"; done
     fi
     _early=$(grep -c "Cannot broadcast before boot completed" "$LC")
     [[ "$_early" -gt 0 ]] && detail "avisos tempranos atrapados (no fatales): $_early"
