@@ -6,7 +6,7 @@ El kernel tiene `# CONFIG_BT is not set`: no hay sockets `AF_BLUETOOTH`
 con `EAFNOSUPPORT`. La regla del árbol es mantener el stack de stock y poner
 puentes chicos entre las APIs de CM7 y `mtkbt`.
 
-## Estado (2026-10-21)
+## Estado (2026-10-22)
 
 | Función | Estado | Pieza |
 |---|---|---|
@@ -16,8 +16,10 @@ puentes chicos entre las APIs de CM7 y `mtkbt`.
 | Nombre del remoto tras emparejar entrante | OK | msg 194 → `onMtkRemoteName` |
 | Enviar archivos (OPP cliente) | OK | `libbt_mtk_opp` + `packages_apps_Bluetooth_opp_mtk.patch` |
 | Recibir archivos (OPP servidor) | OK | `libbt_mtk_opp` + `BluetoothOppMtkServerSession` |
-| Audio A2DP, manos libres (SCO), PAN | Falta | sin socket BlueZ |
-| Remoto emparejado entrante en la lista de envío | Falta | falta su `Class` |
+| Música por audífonos (A2DP) | OK | `libbt_mtk_a2dp` + `libmtka2dp` de stock |
+| Emparejados tras reiniciar, desvincular | OK | `bluetooth_mtk_bonds`, `DELETE_TRUST_REQ` |
+| Remoto emparejado entrante en la lista de envío | OK | clase de `BONDING_RESULT_IND` |
+| Manos libres (SCO), PAN, AVRCP | Falta | sin socket BlueZ |
 
 ## Sockets y mensajes de `mtkbt`
 
@@ -42,7 +44,8 @@ GitHub. Los que usamos (verificados en el teléfono o en el
 | 107 / 153 | READ_REMOTE_NAME REQ / CNF | dirección en 4..11; CNF: result 4, cod 16, len 20, nombre 21 (no usado aún) |
 | 147 / 148 / 149 | DISCOVERY_RESULT / UPDATE / CNF | ver `parse_result()` |
 | 164 | SECURITY_USER_CONFIRM_IND | dirección 4..11, número ASCII 12..17 |
-| 172 | BONDING_RESULT_IND | result en 4, dirección en 8 |
+| 127 | DELETE_TRUST_REQ | dirección en 4..11 (desvincular) |
+| 172 | BONDING_RESULT_IND | result en 4, dirección en 8, cod en 16, tipo de clave en 20, clave en 24 |
 | 186 | LINK_STATE_IND | `ilm_data[5]`: 1 conectado, 0 desconectado |
 | 194 | REMOTE_NAME_IND | dirección 4..11, len en 12, nombre desde 13 |
 
@@ -130,16 +133,60 @@ Rechazado desde la notificación: respuesta 0x43, el emisor cortó a los
 170 ms y lo mostró como rechazado, el share quedó en 490 (cancelado) y se
 borró el archivo reservado.
 
+## Clase del remoto y emparejados guardados
+
+Un equipo que se empareja con nosotros nunca pasó por la búsqueda, así que no
+tenía `Class` y la lista de envío (filtro `TRANSFER`) lo ocultaba. La clase
+viene en `BONDING_RESULT_IND` (172, offset 16, `0x5a020c` en un teléfono);
+`onMtkBondResult` la guarda como propiedad y emite `ACTION_CLASS_CHANGED`.
+
+Con BlueZ los emparejados se leen al encender de la propiedad `Devices`;
+`mtkbt` guarda las claves (`/data/@btmtk/devdb`) pero no hay `Devices`, así
+que tras reiniciar el framework los olvidaba. Como el `dev_cache` del
+framework de stock, `BluetoothService` guarda dirección, clase y nombre en
+`Settings.Secure` `bluetooth_mtk_bonds` y los recarga en `loadBondState()`,
+`initProfileState()` (máquinas de estado y reconexión a los 8 s) y la caché
+de propiedades. Desvincular manda `DELETE_TRUST_REQ` (127) y marca el estado
+`BOND_NONE`, que con BlueZ llegaba como señal `DeviceRemoved`.
+
+## Música por audífonos (A2DP)
+
+El JNI A2DP de stock (`libandroid_runtime`, natives sin nombre leídas desde la
+tabla JNI con Ghidra) usa `libmtkbtextadpa2dp.so`, que tiene toda la máquina
+de estados AVDTP. `libbt_mtk_a2dp` repite lo mismo:
+
+1. servidor `bt.ext.adp.a2dp` (abstracto, DGRAM) → `btmtk_a2dp_setSockAddress`;
+2. socket conectado a `/dev/socket/bt.int.adp` (timeout de envío 3 s);
+3. `btmtk_a2dp_send_activate_req(servidor, api)` al encender BT;
+4. cada datagrama → `btmtk_a2dp_handle_message()`, que devuelve 1..4
+   (disconnected, connecting, connected, playing); `btmtk_a2dp_get_bdaddr()`
+   da el equipo.
+
+Conectar: `btmtk_a2dp_send_signal_connect_req(&addr, 0)`; desconectar:
+`a2dp_close_disconnect()`; suspender/reanudar:
+`btmtk_A2dp_send_appi_bt_stop/start_request()`. El JNI de CM7, con
+`HAVE_BLUETOOTH_MTK`, registra estas natives y un hilo que llama
+`onMtkSinkStateChanged()` → `onSinkPropertyChanged(path, ["State", …])`, igual
+que la señal de BlueZ. Las rutas son sintéticas
+(`/org/bluez/mtkbt/hci0/dev_AA_BB_…`), solo para ida y vuelta.
+
+El audio lo codifica en SBC `libmtka2dp.so` de stock, que exporta la API de
+`liba2dp` (`a2dp_init`, `a2dp_write`…) y escribe en
+`/dev/socket/bt.a2dp.stream`; `libaudio` la enlaza en vez del `liba2dp` de
+BlueZ. Al empezar a sonar hay ~1 s de `[A2DP][ERR] start failed` mientras
+`mtkbt` espera que el audífono acepte el inicio; después el audio fluye.
+
+Sin búsqueda SDP, un equipo de clase mayor AUDIO_VIDEO recibe los UUID
+`AudioSink` y `AdvAudioDist` (`mtkSetUuidsFromClass`), para que Ajustes
+ofrezca audio multimedia. Stock los toma del SDP de `mtkbt`. AVRCP (volumen,
+metadatos) no está conectado.
+
+Probado el 2026-10-22 con unos TWS (`0x240404`): emparejar, conectar desde
+Ajustes y al encenderlos, música, reinicio (siguen emparejados y se
+reconectan), desvincular.
+
 ## Pendientes
 
-- **Clase del remoto en emparejamiento entrante.** `BluetoothSettings`
-  (filtro `TRANSFER`) solo lista dispositivos con UUID de OPP o con una clase
-  compatible, y el remoto entrante no tiene ninguna: hay que ponerlo visible
-  para enviarle. La clase viene en los eventos de emparejamiento (o en
-  `READ_REMOTE_NAME_CNF`); hay un volcado temporal de 164/172 en
-  `libbt_mtk_gap` sin commitear para ver el offset.
-- **A2DP**: `mtkbt` lleva AVDTP; stock manda SBC por `/dev/socket/bt.a2dp.stream`
-  desde `libmtka2dp`.
 - **Manos libres**: la voz del MT6572 va por BTCVSD, no por SCO sobre HCI.
 - Alternativa descartada: BlueZ con el driver `hci_stp.c` de MediaTek
   (Ubuntu Touch krillin/vegetahd, AsteroidOS MT6580). Funciona en esos

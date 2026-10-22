@@ -561,8 +561,8 @@ sensores solo hay acelerómetro, como en stock. Detalle:
 ## Pendientes conocidos
 
 - Bluetooth: enciende, busca, empareja en los dos sentidos y envía
-  y recibe archivos (ver `docs/BLUETOOTH_NOTES.md`); faltan A2DP y manos
-  libres. La pila es `mtkbt` (MTK, sobre STP), no
+  recibe archivos y suena por audífonos A2DP (ver `docs/BLUETOOTH_NOTES.md`);
+  falta manos libres. La pila es `mtkbt` (MTK, sobre STP), no
   BlueZ: no hay `bluetoothd` y el kernel no tiene sockets RFCOMM/SCO de
   BlueZ.
   - Para que `mtkbt` encienda el chip: `persist.mtk.wcn.combo.chipid=0x6572`,

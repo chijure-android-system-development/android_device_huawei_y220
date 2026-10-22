@@ -70,7 +70,7 @@ BOARD_HAS_NO_MISC_PARTITION := true
 BOARD_HAVE_BLUETOOTH := true
 # Settings enable talks to mtkbt on bt.int.adp, not bluetoothd.
 BOARD_HAVE_BLUETOOTH_MTK := true
-BOARD_BLUETOOTH_MTK_INCLUDES := device/huawei/y220/libbt_mtk_gap
+BOARD_BLUETOOTH_MTK_INCLUDES := device/huawei/y220/libbt_mtk_gap device/huawei/y220/libbt_mtk_a2dp
 
 # libpalwlan_mtk.so needs __xlog_buf_printf from liblog. The body is
 # device/huawei/y220/libxlog and is pulled into the shared liblog only.

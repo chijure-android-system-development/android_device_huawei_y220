@@ -1,8 +1,53 @@
+diff --git a/core/java/android/server/BluetoothA2dpService.java b/core/java/android/server/BluetoothA2dpService.java
+index 142aa91af67..e37edb94854 100644
+--- a/core/java/android/server/BluetoothA2dpService.java
++++ b/core/java/android/server/BluetoothA2dpService.java
+@@ -404,6 +404,8 @@ public class BluetoothA2dpService extends IBluetoothA2dp.Stub {
+     }
+ 
+     private synchronized void onBluetoothEnable() {
++        // mtkbt: register the A2DP source with the vendor stack.
++        startNative();
+         String devices = mBluetoothService.getProperty("Devices");
+         mSinkCount = 0;
+         if (devices != null) {
+@@ -448,6 +450,7 @@ public class BluetoothA2dpService extends IBluetoothA2dp.Stub {
+         }
+ 
+         mAudioManager.setParameters(BLUETOOTH_ENABLED + "=false");
++        stopNative();
+     }
+ 
+     private synchronized boolean isConnectSinkFeasible(BluetoothDevice device) {
+@@ -660,6 +663,14 @@ public class BluetoothA2dpService extends IBluetoothA2dp.Stub {
+         return mBluetoothService.setAuthorizationNative(address, value, data.intValue());
+     }
+ 
++    /* mtkbt reports the sink state by address; BlueZ sends a PropertyChanged. */
++    private void onMtkSinkStateChanged(String address, String state) {
++        String path = mBluetoothService.getObjectPathFromAddress(address);
++        if (path != null) {
++            onSinkPropertyChanged(path, new String[] {PROPERTY_STATE, state});
++        }
++    }
++
+     private synchronized void onSinkPropertyChanged(String path, String []propValues) {
+         if (!mBluetoothService.isEnabled()) {
+             return;
+@@ -800,6 +811,8 @@ public class BluetoothA2dpService extends IBluetoothA2dp.Stub {
+ 
+     private native boolean initNative();
+     private native void cleanupNative();
++    private native void startNative();
++    private native void stopNative();
+     private synchronized native boolean connectSinkNative(String path);
+     private synchronized native boolean disconnectSinkNative(String path);
+     private synchronized native boolean suspendSinkNative(String path);
 diff --git a/core/java/android/server/BluetoothEventLoop.java b/core/java/android/server/BluetoothEventLoop.java
-index 3df7a31df37..321ddc94a5f 100644
+index 3df7a31df37..6140bdf4fdf 100644
 --- a/core/java/android/server/BluetoothEventLoop.java
 +++ b/core/java/android/server/BluetoothEventLoop.java
-@@ -156,6 +156,66 @@ class BluetoothEventLoop {
+@@ -156,6 +156,79 @@ class BluetoothEventLoop {
          return isEventLoopRunningNative();
      }
  
@@ -47,9 +92,21 @@ index 3df7a31df37..321ddc94a5f 100644
 +        mtkPairingRequest(address, BluetoothDevice.PAIRING_VARIANT_PIN, 0);
 +    }
 +
-+    private void onMtkBondResult(String address, int result) {
++    /* cod is the remote class from BONDING_RESULT_IND (0 if unknown). A
++     * device that paired with us was never discovered, so this is its only
++     * Class; without it the OPP device picker filters it out. */
++    private void onMtkBondResult(String address, int result, int cod) {
 +        address = address.toUpperCase();
 +        mPasskeyAgentRequestData.remove(address);
++        if (result == 0 && cod != 0) {
++            mBluetoothService.addRemoteDeviceProperties(address,
++                    new String[] {"Class", Integer.toString(cod)});
++            Intent intent = new Intent(BluetoothDevice.ACTION_CLASS_CHANGED);
++            intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mAdapter.getRemoteDevice(address));
++            intent.putExtra(BluetoothDevice.EXTRA_CLASS, new BluetoothClass(cod));
++            mContext.sendBroadcast(intent, BLUETOOTH_PERM);
++            mBluetoothService.mtkSetUuidsFromClass(address, cod);
++        }
 +        onCreatePairedDeviceResult(address, result == 0 ?
 +                BluetoothDevice.BOND_SUCCESS : BluetoothDevice.UNBOND_REASON_AUTH_FAILED);
 +    }
@@ -60,6 +117,7 @@ index 3df7a31df37..321ddc94a5f 100644
 +        address = address.toUpperCase();
 +        mBluetoothService.addRemoteDeviceProperties(address,
 +                new String[] {"Name", name, "Alias", name});
++        mBluetoothService.mtkBondedDeviceChanged(address);
 +        Intent intent = new Intent(BluetoothDevice.ACTION_NAME_CHANGED);
 +        intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mAdapter.getRemoteDevice(address));
 +        intent.putExtra(BluetoothDevice.EXTRA_NAME, name);
@@ -69,7 +127,7 @@ index 3df7a31df37..321ddc94a5f 100644
      private void addDevice(String address, String[] properties) {
          mBluetoothService.addRemoteDeviceProperties(address, properties);
          String rssi = mBluetoothService.getRemoteDeviceProperty(address, "RSSI");
-@@ -661,5 +721,7 @@ class BluetoothEventLoop {
+@@ -661,5 +734,7 @@ class BluetoothEventLoop {
      private native void startEventLoopNative();
      private native void stopEventLoopNative();
      private native boolean isEventLoopRunningNative();
@@ -78,7 +136,7 @@ index 3df7a31df37..321ddc94a5f 100644
      private native void cleanupNativeDataNative();
  }
 diff --git a/core/java/android/server/BluetoothService.java b/core/java/android/server/BluetoothService.java
-index 544318fefd9..894ed8ea80e 100755
+index 544318fefd9..01aff523916 100755
 --- a/core/java/android/server/BluetoothService.java
 +++ b/core/java/android/server/BluetoothService.java
 @@ -84,6 +84,8 @@ public class BluetoothService extends IBluetooth.Stub {
@@ -90,18 +148,27 @@ index 544318fefd9..894ed8ea80e 100755
      private boolean mRestart = false;  // need to call enable() after disable()
      private boolean mIsDiscovering;
  
-@@ -105,6 +107,10 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -105,6 +107,19 @@ public class BluetoothService extends IBluetooth.Stub {
      private static final int MESSAGE_FINISH_DISABLE = 2;
      private static final int MESSAGE_UUID_INTENT = 3;
      private static final int MESSAGE_AUTO_PAIRING_FAILURE_ATTEMPT_DELAY = 5;
 +    private static final int MESSAGE_MTK_DISCOVERABLE_TIMEOUT = 6;
++    private static final int MESSAGE_MTK_SAVE_BONDS = 7;
++
++    /*
++     * mtkbt keeps the link keys but BlueZ's "Devices" property, where the
++     * bonded list comes from at power on, does not exist. Like the stock
++     * framework (dev_cache), keep the list ourselves: address, class, name.
++     */
++    private static final String MTK_BONDS = "bluetooth_mtk_bonds";
++    private final ArrayList<String[]> mMtkSavedBonds = new ArrayList<String[]>();
 +
 +    // mtkbt does not keep the local name across power cycles.
 +    private static final String MTK_BLUETOOTH_NAME = "bluetooth_name";
  
      // The time (in millisecs) to delay the pairing attempt after the first
      // auto pairing attempt fails. We use an exponential delay with
-@@ -359,6 +365,9 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -359,6 +374,9 @@ public class BluetoothService extends IBluetooth.Stub {
              return;
          }
          mEventLoop.stop();
@@ -111,10 +178,13 @@ index 544318fefd9..894ed8ea80e 100755
          tearDownNativeDataNative();
          disableNative();
  
-@@ -521,6 +530,12 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -521,6 +539,15 @@ public class BluetoothService extends IBluetooth.Stub {
                      return;
                  }
                  break;
++            case MESSAGE_MTK_SAVE_BONDS:
++                mtkSaveBonds();
++                break;
 +            case MESSAGE_MTK_DISCOVERABLE_TIMEOUT:
 +                // BlueZ ends the discoverable window itself; mtkbt does not.
 +                if (isEnabledInternal()) {
@@ -124,7 +194,7 @@ index 544318fefd9..894ed8ea80e 100755
              }
          }
      };
-@@ -533,8 +548,11 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -533,8 +560,11 @@ public class BluetoothService extends IBluetooth.Stub {
              mSaveSetting = saveSetting;
          }
          public void run() {
@@ -138,7 +208,7 @@ index 544318fefd9..894ed8ea80e 100755
                  int retryCount = 2;
                  boolean running = false;
                  while ((retryCount-- > 0) && !running) {
-@@ -561,9 +579,13 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -561,18 +591,27 @@ public class BluetoothService extends IBluetooth.Stub {
  
  
              if (res) {
@@ -153,9 +223,12 @@ index 544318fefd9..894ed8ea80e 100755
                  if (mSaveSetting) {
                      persistBluetoothOnSetting(true);
                  }
-@@ -571,8 +593,10 @@ public class BluetoothService extends IBluetooth.Stub {
+                 mIsDiscovering = false;
                  mBondState.readAutoPairingData();
                  mBondState.loadBondState();
++                if (mtkStack) {
++                    mtkApplyBonds();
++                }
                  initProfileState();
 -                mHandler.sendMessageDelayed(
 -                        mHandler.obtainMessage(MESSAGE_REGISTER_SDP_RECORDS, 1, -1), 3000);
@@ -166,7 +239,7 @@ index 544318fefd9..894ed8ea80e 100755
  
                  // Log bluetooth on to battery stats.
                  long ident = Binder.clearCallingIdentity();
-@@ -590,12 +614,18 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -590,12 +629,18 @@ public class BluetoothService extends IBluetooth.Stub {
                                BluetoothAdapter.STATE_ON :
                                BluetoothAdapter.STATE_OFF);
  
@@ -186,7 +259,52 @@ index 544318fefd9..894ed8ea80e 100755
              if (mIsAirplaneSensitive && isAirplaneModeOn() && !mIsAirplaneToggleable) {
                  disable(false);
              }
-@@ -1032,7 +1062,37 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -710,6 +755,10 @@ public class BluetoothService extends IBluetooth.Stub {
+             if (mBluetoothState != BluetoothAdapter.STATE_TURNING_ON) {
+                 return;
+             }
++            if (mMtkStack) {
++                mtkLoadBonds();
++                return;
++            }
+             String []bonds = null;
+             String val = getPropertyInternal("Devices");
+             if (val != null) {
+@@ -766,6 +815,10 @@ public class BluetoothService extends IBluetooth.Stub {
+             } else {
+                 mState.put(address, state);
+             }
++            if (mMtkStack && (state == BluetoothDevice.BOND_BONDED ||
++                    state == BluetoothDevice.BOND_NONE)) {
++                mHandler.sendEmptyMessage(MESSAGE_MTK_SAVE_BONDS);
++            }
+ 
+             mContext.sendBroadcast(intent, BLUETOOTH_PERM);
+         }
+@@ -807,6 +860,22 @@ public class BluetoothService extends IBluetooth.Stub {
+             return state.intValue();
+         }
+ 
++        /* Bonded devices saved by mtkSaveBonds(). Their class and name go
++         * to the property cache in mtkApplyBonds(), outside this lock. */
++        private void mtkLoadBonds() {
++            String saved = Settings.Secure.getString(mContext.getContentResolver(), MTK_BONDS);
++            mState.clear();
++            mMtkSavedBonds.clear();
++            if (saved == null) return;
++            for (String line : saved.split("\n")) {
++                String[] f = line.split("\t", 3);
++                if (f.length < 2 || !BluetoothAdapter.checkBluetoothAddress(f[0])) continue;
++                mState.put(f[0], BluetoothDevice.BOND_BONDED);
++                mMtkSavedBonds.add(f);
++            }
++            if (DBG) log("found " + mState.size() + " saved mtkbt bonded devices");
++        }
++
+         /*package*/ synchronized String[] listInState(int state) {
+             ArrayList<String> result = new ArrayList<String>(mState.size());
+             for (Map.Entry<String, Integer> e : mState.entrySet()) {
+@@ -1032,7 +1101,37 @@ public class BluetoothService extends IBluetooth.Stub {
          if (name == null) {
              return false;
          }
@@ -225,7 +343,7 @@ index 544318fefd9..894ed8ea80e 100755
      }
  
      //TODO(): setPropertyString, setPropertyInteger, setPropertyBoolean
-@@ -1042,19 +1102,25 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -1042,19 +1141,25 @@ public class BluetoothService extends IBluetooth.Stub {
      private boolean setPropertyString(String key, String value) {
          mContext.enforceCallingOrSelfPermission(BLUETOOTH_PERM, "Need BLUETOOTH permission");
          if (!isEnabledInternal()) return false;
@@ -254,7 +372,7 @@ index 544318fefd9..894ed8ea80e 100755
      }
  
      /**
-@@ -1100,6 +1166,13 @@ public class BluetoothService extends IBluetooth.Stub {
+@@ -1100,6 +1205,13 @@ public class BluetoothService extends IBluetooth.Stub {
          setPropertyBoolean("Pairable", pairable);
          setPropertyBoolean("Discoverable", discoverable);
  
@@ -268,6 +386,125 @@ index 544318fefd9..894ed8ea80e 100755
          return true;
      }
  
+@@ -1326,7 +1438,56 @@ public class BluetoothService extends IBluetooth.Stub {
+     public synchronized boolean removeBondInternal(String address) {
+         // Unset the trusted device state and then unpair
+         setTrust(address, false);
+-        return removeDeviceNative(getObjectPathFromAddress(address));
++        boolean res = removeDeviceNative(getObjectPathFromAddress(address));
++        if (res && mMtkStack) {
++            // BlueZ answers with a DeviceRemoved signal; mtkbt does not.
++            mBondState.setBondState(address, BluetoothDevice.BOND_NONE,
++                    BluetoothDevice.UNBOND_REASON_REMOVED);
++        }
++        return res;
++    }
++
++    private synchronized void mtkApplyBonds() {
++        for (String[] f : mMtkSavedBonds) {
++            String address = f[0];
++            int cod = 0;
++            try {
++                cod = Integer.parseInt(f[1]);
++            } catch (NumberFormatException e) {
++                // no class
++            }
++            if (cod != 0) {
++                addRemoteDeviceProperties(address, new String[] {"Class", Integer.toString(cod)});
++            }
++            if (f.length > 2 && f[2].length() > 0) {
++                addRemoteDeviceProperties(address, new String[] {"Name", f[2], "Alias", f[2]});
++            }
++            mtkSetUuidsFromClass(address, cod);
++        }
++        mMtkSavedBonds.clear();
++    }
++
++    /*package*/ synchronized void mtkSaveBonds() {
++        if (!mMtkStack) return;
++        StringBuilder sb = new StringBuilder();
++        for (String address : mBondState.listInState(BluetoothDevice.BOND_BONDED)) {
++            Map<String, String> props = mDeviceProperties.get(address);
++            String cod = props != null ? props.get("Class") : null;
++            String name = props != null ? props.get("Name") : null;
++            sb.append(address).append('\t').append(cod != null ? cod : "0").append('\t')
++                    .append(name != null ? name.replace('\n', ' ').replace('\t', ' ') : "")
++                    .append('\n');
++        }
++        long ident = Binder.clearCallingIdentity();
++        Settings.Secure.putString(mContext.getContentResolver(), MTK_BONDS, sb.toString());
++        Binder.restoreCallingIdentity(ident);
++    }
++
++    /* The remote name arrives after the bond; save it with the device. */
++    /*package*/ void mtkBondedDeviceChanged(String address) {
++        if (mMtkStack && mBondState.getBondState(address) == BluetoothDevice.BOND_BONDED) {
++            mHandler.sendEmptyMessage(MESSAGE_MTK_SAVE_BONDS);
++        }
+     }
+ 
+     public synchronized String[] listBonds() {
+@@ -2081,8 +2242,36 @@ public class BluetoothService extends IBluetooth.Stub {
+         return null;
+     }
+ 
++    /* mtkbt has no BlueZ adapter object; device paths only need to round-trip. */
++    private static final String MTK_DEVICE_PATH_PREFIX = "/org/bluez/mtkbt/hci0/dev_";
++
++    private String getAdapterObjectPath() {
++        String path = getPropertyInternal("ObjectPath");
++        if (path == null && mMtkStack) {
++            path = MTK_DEVICE_PATH_PREFIX;
++        }
++        return path;
++    }
++
++    /*
++     * mtkbt does not run an SDP search for us. An audio device (major class
++     * AUDIO_VIDEO) gets the A2DP sink UUIDs, so the settings offer media
++     * audio and BluetoothA2dpService accepts it as a sink. Stock fills them
++     * from the vendor stack's SDP results.
++     */
++    /*package*/ synchronized void mtkSetUuidsFromClass(String address, int cod) {
++        if (!mMtkStack) return;
++        if (new BluetoothClass(cod).getMajorDeviceClass()
++                != BluetoothClass.Device.Major.AUDIO_VIDEO) {
++            return;
++        }
++        addRemoteDeviceProperties(address, new String[] {"UUIDs", "2",
++                BluetoothUuid.AudioSink.toString(), BluetoothUuid.AdvAudioDist.toString()});
++        sendUuidIntent(address);
++    }
++
+     /*package*/ String getAddressFromObjectPath(String objectPath) {
+-        String adapterObjectPath = getPropertyInternal("ObjectPath");
++        String adapterObjectPath = getAdapterObjectPath();
+         if (adapterObjectPath == null || objectPath == null) {
+             Log.e(TAG, "getAddressFromObjectPath: AdapterObjectPath:" + adapterObjectPath +
+                     "  or deviceObjectPath:" + objectPath + " is null");
+@@ -2102,7 +2291,7 @@ public class BluetoothService extends IBluetooth.Stub {
+     }
+ 
+     /*package*/ String getObjectPathFromAddress(String address) {
+-        String path = getPropertyInternal("ObjectPath");
++        String path = getAdapterObjectPath();
+         if (path == null) {
+             Log.e(TAG, "Error: Object Path is null");
+             return null;
+@@ -2181,6 +2370,13 @@ public class BluetoothService extends IBluetooth.Stub {
+         String val = getPropertyInternal("Devices");
+         if (val != null) {
+             bonds = val.split(",");
++        } else if (mMtkStack) {
++            // No "Devices" without BlueZ: the saved mtkbt bonds, as paths.
++            String[] addresses = mBondState.listInState(BluetoothDevice.BOND_BONDED);
++            bonds = new String[addresses.length];
++            for (int i = 0; i < addresses.length; i++) {
++                bonds[i] = getObjectPathFromAddress(addresses[i]);
++            }
+         }
+         if (bonds == null) {
+             return;
 diff --git a/core/jni/Android.mk b/core/jni/Android.mk
 index bb01d9d1f48..4f8c0dca152 100644
 --- a/core/jni/Android.mk
@@ -279,14 +516,235 @@ index bb01d9d1f48..4f8c0dca152 100644
 +ifeq ($(BOARD_HAVE_BLUETOOTH_MTK),true)
 +LOCAL_CFLAGS += -DHAVE_BLUETOOTH_MTK
 +LOCAL_C_INCLUDES += $(BOARD_BLUETOOTH_MTK_INCLUDES)
-+LOCAL_SHARED_LIBRARIES += libbt_mtk_gap
++LOCAL_SHARED_LIBRARIES += libbt_mtk_gap libbt_mtk_a2dp
 +endif
 +
  ifneq ($(TARGET_SIMULATOR),true)
  LOCAL_SHARED_LIBRARIES += \
  	libdl
+diff --git a/core/jni/android_server_BluetoothA2dpService.cpp b/core/jni/android_server_BluetoothA2dpService.cpp
+index 67afa7dd505..59698b4e12a 100644
+--- a/core/jni/android_server_BluetoothA2dpService.cpp
++++ b/core/jni/android_server_BluetoothA2dpService.cpp
+@@ -34,6 +34,11 @@
+ #include <dbus/dbus.h>
+ #endif
+ 
++#ifdef HAVE_BLUETOOTH_MTK
++#include <pthread.h>
++#include "bt_mtk_a2dp.h"
++#endif
++
+ namespace android {
+ 
+ #ifdef HAVE_BLUETOOTH
+@@ -418,9 +423,191 @@ void onStatusReply(DBusMessage *msg, void *user, void *n) {
+ #endif
+ 
+ 
++/* BlueZ starts its audio service by itself. */
++static void startNative(JNIEnv *env, jobject object) {
++}
++
++static void stopNative(JNIEnv *env, jobject object) {
++}
++
++#ifdef HAVE_BLUETOOTH_MTK
++/*
++ * mtkbt: the A2DP source runs in the vendor stack and libbt_mtk_a2dp drives
++ * it like the stock MTK framework. State changes come from mtkbt as
++ * indications and go to Java as BlueZ AudioSink "State" changes.
++ */
++static JavaVM *mtk_vm;
++static jobject mtk_obj;
++static jmethodID method_onMtkSinkStateChanged;
++static pthread_mutex_t mtk_lock = PTHREAD_MUTEX_INITIALIZER;
++static pthread_t mtk_thread;
++static volatile bool mtk_run;
++
++/* Object path to address: the path ends in dev_AA_BB_CC_DD_EE_FF. */
++static bool mtk_path_to_addr(JNIEnv *env, jstring path, char addr[18]) {
++    if (path == NULL)
++        return false;
++    const char *c = env->GetStringUTFChars(path, NULL);
++    size_t len = strlen(c);
++    bool ok = len >= 17;
++    if (ok) {
++        strncpy(addr, c + len - 17, 17);
++        addr[17] = 0;
++        for (int i = 0; i < 17; i++)
++            if (addr[i] == '_')
++                addr[i] = ':';
++    }
++    env->ReleaseStringUTFChars(path, c);
++    return ok;
++}
++
++static void *mtk_a2dp_thread(void *) {
++    JNIEnv *env;
++    JavaVMAttachArgs args;
++    char name[] = "BT mtkbt a2dp";
++
++    args.version = JNI_VERSION_1_4;
++    args.name = name;
++    args.group = NULL;
++    mtk_vm->AttachCurrentThread(&env, &args);
++    while (mtk_run) {
++        char addr[18];
++        int state = btmtk_a2dp_event_wait(addr, 500);
++        if (state < 0) {
++            usleep(200000);
++            continue;
++        }
++        if (state == BTMTK_A2DP_NONE)
++            continue;
++        jstring jaddr = env->NewStringUTF(addr);
++        jstring jstate = env->NewStringUTF(btmtk_a2dp_state_name(state));
++        env->CallVoidMethod(mtk_obj, method_onMtkSinkStateChanged, jaddr, jstate);
++        if (env->ExceptionCheck()) {
++            LOGE("exception in mtkbt a2dp handler");
++            env->ExceptionDescribe();
++            env->ExceptionClear();
++        }
++        env->DeleteLocalRef(jstate);
++        env->DeleteLocalRef(jaddr);
++    }
++    mtk_vm->DetachCurrentThread();
++    return NULL;
++}
++
++static bool initNativeMtk(JNIEnv *env, jobject object) {
++    env->GetJavaVM(&mtk_vm);
++    mtk_obj = env->NewGlobalRef(object);
++    return true;
++}
++
++static void cleanupNativeMtk(JNIEnv *env, jobject object) {
++}
++
++/* Bluetooth on: ACTIVATE_REQ, then the indication thread. */
++static void startNativeMtk(JNIEnv *env, jobject object) {
++    if (btmtk_a2dp_start() != 0)
++        return;
++    pthread_mutex_lock(&mtk_lock);
++    if (!mtk_run) {
++        mtk_run = true;
++        if (pthread_create(&mtk_thread, NULL, mtk_a2dp_thread, NULL) != 0)
++            mtk_run = false;
++    }
++    pthread_mutex_unlock(&mtk_lock);
++}
++
++static void stopNativeMtk(JNIEnv *env, jobject object) {
++    pthread_mutex_lock(&mtk_lock);
++    bool joining = mtk_run;
++    mtk_run = false;
++    pthread_mutex_unlock(&mtk_lock);
++    if (joining)
++        pthread_join(mtk_thread, NULL);
++    btmtk_a2dp_stop();
++}
++
++static jboolean connectSinkNativeMtk(JNIEnv *env, jobject object, jstring path) {
++    char addr[18];
++    if (!mtk_path_to_addr(env, path, addr))
++        return JNI_FALSE;
++    return btmtk_a2dp_connect(addr) == 0 ? JNI_TRUE : JNI_FALSE;
++}
++
++static jboolean disconnectSinkNativeMtk(JNIEnv *env, jobject object, jstring path) {
++    return btmtk_a2dp_disconnect() == 0 ? JNI_TRUE : JNI_FALSE;
++}
++
++static jboolean suspendSinkNativeMtk(JNIEnv *env, jobject object, jstring path) {
++    return btmtk_a2dp_suspend() == 0 ? JNI_TRUE : JNI_FALSE;
++}
++
++static jboolean resumeSinkNativeMtk(JNIEnv *env, jobject object, jstring path) {
++    return btmtk_a2dp_resume() == 0 ? JNI_TRUE : JNI_FALSE;
++}
++
++/* State, Connected and Playing, as BlueZ AudioSink.GetProperties. */
++static jobjectArray getSinkPropertiesNativeMtk(JNIEnv *env, jobject object, jstring path) {
++    char addr[18], cur[18];
++    if (!mtk_path_to_addr(env, path, addr))
++        return NULL;
++    int state = btmtk_a2dp_get_state(cur);
++    if (strcasecmp(addr, cur) != 0)
++        state = BTMTK_A2DP_DISCONNECTED;
++    const char *v[6] = {
++        "State", btmtk_a2dp_state_name(state),
++        "Connected", state >= BTMTK_A2DP_CONNECTED ? "true" : "false",
++        "Playing", state == BTMTK_A2DP_PLAYING ? "true" : "false",
++    };
++    jclass str = env->FindClass("java/lang/String");
++    jobjectArray arr = env->NewObjectArray(6, str, NULL);
++    for (int i = 0; i < 6; i++) {
++        jstring s = env->NewStringUTF(v[i]);
++        env->SetObjectArrayElement(arr, i, s);
++        env->DeleteLocalRef(s);
++    }
++    env->DeleteLocalRef(str);
++    return arr;
++}
++
++/* AVRCP is not wired up on mtkbt yet. */
++static jboolean avrcpNativeMtk(JNIEnv *env, jobject object, jstring path) {
++    return JNI_FALSE;
++}
++
++static jboolean sendEventNativeMtk(JNIEnv *env, jobject object, jstring path,
++                                   jint eventId, jlong data) {
++    return JNI_FALSE;
++}
++
++static jboolean sendPlayStatusNativeMtk(JNIEnv *env, jobject object, jstring path,
++                                        jint duration, jint position, jint playStatus) {
++    return JNI_FALSE;
++}
++
++static JNINativeMethod sMtkMethods[] = {
++    {"initNative", "()Z", (void *)initNativeMtk},
++    {"cleanupNative", "()V", (void *)cleanupNativeMtk},
++    {"startNative", "()V", (void *)startNativeMtk},
++    {"stopNative", "()V", (void *)stopNativeMtk},
++    {"connectSinkNative", "(Ljava/lang/String;)Z", (void *)connectSinkNativeMtk},
++    {"disconnectSinkNative", "(Ljava/lang/String;)Z", (void *)disconnectSinkNativeMtk},
++    {"suspendSinkNative", "(Ljava/lang/String;)Z", (void *)suspendSinkNativeMtk},
++    {"resumeSinkNative", "(Ljava/lang/String;)Z", (void *)resumeSinkNativeMtk},
++    {"getSinkPropertiesNative", "(Ljava/lang/String;)[Ljava/lang/Object;",
++                                    (void *)getSinkPropertiesNativeMtk},
++    {"avrcpVolumeUpNative", "(Ljava/lang/String;)Z", (void *)avrcpNativeMtk},
++    {"avrcpVolumeDownNative", "(Ljava/lang/String;)Z", (void *)avrcpNativeMtk},
++    {"sendMetaDataNative", "(Ljava/lang/String;)Z", (void *)avrcpNativeMtk},
++    {"sendEventNative", "(Ljava/lang/String;IJ)Z", (void *)sendEventNativeMtk},
++    {"sendPlayStatusNative", "(Ljava/lang/String;III)Z", (void *)sendPlayStatusNativeMtk},
++};
++#endif
++
+ static JNINativeMethod sMethods[] = {
+     {"initNative", "()Z", (void *)initNative},
+     {"cleanupNative", "()V", (void *)cleanupNative},
++    {"startNative", "()V", (void *)startNative},
++    {"stopNative", "()V", (void *)stopNative},
+ 
+     /* Bluez audio 4.47 API */
+     {"connectSinkNative", "(Ljava/lang/String;)Z", (void *)connectSinkNative},
+@@ -458,6 +645,12 @@ int register_android_server_BluetoothA2dpService(JNIEnv *env) {
+     field_mDuration = env->GetFieldID(clazz, "mDuration", "Ljava/lang/String;");
+ #endif
+ 
++#ifdef HAVE_BLUETOOTH_MTK
++    method_onMtkSinkStateChanged = env->GetMethodID(clazz, "onMtkSinkStateChanged",
++                                          "(Ljava/lang/String;Ljava/lang/String;)V");
++    return AndroidRuntime::registerNativeMethods(env,
++                "android/server/BluetoothA2dpService", sMtkMethods, NELEM(sMtkMethods));
++#endif
+     return AndroidRuntime::registerNativeMethods(env,
+                 "android/server/BluetoothA2dpService", sMethods, NELEM(sMethods));
+ }
 diff --git a/core/jni/android_server_BluetoothEventLoop.cpp b/core/jni/android_server_BluetoothEventLoop.cpp
-index 50c34c254b6..3ec6f9f7a01 100644
+index 50c34c254b6..2d0993b4176 100644
 --- a/core/jni/android_server_BluetoothEventLoop.cpp
 +++ b/core/jni/android_server_BluetoothEventLoop.cpp
 @@ -26,6 +26,7 @@
@@ -297,7 +755,7 @@ index 50c34c254b6..3ec6f9f7a01 100644
  #include <stdlib.h>
  #include <errno.h>
  #include <unistd.h>
-@@ -1280,6 +1281,169 @@ done:
+@@ -1280,6 +1281,170 @@ done:
  }
  #endif
  
@@ -403,7 +861,8 @@ index 50c34c254b6..3ec6f9f7a01 100644
 +            else if (ev.type == BTMTK_GAP_EV_PIN_REQUEST)
 +                env->CallVoidMethod(s_mtk_obj, s_mtk_onPinRequest, addr);
 +            else
-+                env->CallVoidMethod(s_mtk_obj, s_mtk_onBondResult, addr, (jint)ev.result);
++                env->CallVoidMethod(s_mtk_obj, s_mtk_onBondResult, addr, (jint)ev.result,
++                                    (jint)ev.cod);
 +            env->DeleteLocalRef(addr);
 +            break;
 +        }
@@ -432,7 +891,7 @@ index 50c34c254b6..3ec6f9f7a01 100644
 +        s_mtk_onPinRequest = env->GetMethodID(clazz, "onMtkPinRequest",
 +                                              "(Ljava/lang/String;)V");
 +        s_mtk_onBondResult = env->GetMethodID(clazz, "onMtkBondResult",
-+                                              "(Ljava/lang/String;I)V");
++                                              "(Ljava/lang/String;II)V");
 +        s_mtk_onRemoteName = env->GetMethodID(clazz, "onMtkRemoteName",
 +                                              "(Ljava/lang/String;Ljava/lang/String;)V");
 +        env->DeleteLocalRef(clazz);
@@ -467,7 +926,7 @@ index 50c34c254b6..3ec6f9f7a01 100644
  static JNINativeMethod sMethods[] = {
       /* name, signature, funcPtr */
      {"classInitNative", "()V", (void *)classInitNative},
-@@ -1287,7 +1451,9 @@ static JNINativeMethod sMethods[] = {
+@@ -1287,7 +1452,9 @@ static JNINativeMethod sMethods[] = {
      {"cleanupNativeDataNative", "()V", (void *)cleanupNativeDataNative},
      {"startEventLoopNative", "()V", (void *)startEventLoopNative},
      {"stopEventLoopNative", "()V", (void *)stopEventLoopNative},
@@ -479,7 +938,7 @@ index 50c34c254b6..3ec6f9f7a01 100644
  
  int register_android_server_BluetoothEventLoop(JNIEnv *env) {
 diff --git a/core/jni/android_server_BluetoothService.cpp b/core/jni/android_server_BluetoothService.cpp
-index be2e5f3c5c6..ee77250a93f 100644
+index be2e5f3c5c6..965e2c3f3bc 100644
 --- a/core/jni/android_server_BluetoothService.cpp
 +++ b/core/jni/android_server_BluetoothService.cpp
 @@ -36,6 +36,17 @@
@@ -652,20 +1111,36 @@ index be2e5f3c5c6..ee77250a93f 100644
      jboolean result = JNI_FALSE;
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
-@@ -462,6 +558,12 @@ static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
+@@ -462,6 +558,28 @@ static jboolean cancelDeviceCreationNative(JNIEnv *env, jobject object,
  
  static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_path) {
      LOGV(__FUNCTION__);
 +#ifdef HAVE_BLUETOOTH_MTK
 +    /* mtkbt is the stack, so BlueZ has no adapter; a NULL path
-+     * makes libdbus abort system_server. */
-+    if (get_adapter_path(env, object) == NULL)
-+        return JNI_FALSE;
++     * makes libdbus abort system_server. Unpair through mtkbt; the path
++     * ends in dev_AA_BB_CC_DD_EE_FF. */
++    if (get_adapter_path(env, object) == NULL) {
++        if (object_path == NULL)
++            return JNI_FALSE;
++        const char *c = env->GetStringUTFChars(object_path, NULL);
++        size_t len = strlen(c);
++        char addr[18];
++        bool ok = len >= 17;
++        if (ok) {
++            strncpy(addr, c + len - 17, 17);
++            addr[17] = 0;
++            for (int i = 0; i < 17; i++)
++                if (addr[i] == '_')
++                    addr[i] = ':';
++        }
++        env->ReleaseStringUTFChars(object_path, c);
++        return ok && btmtk_gap_delete_trust(addr) == 0 ? JNI_TRUE : JNI_FALSE;
++    }
 +#endif
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      if (nat) {
-@@ -483,32 +585,53 @@ static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_p
+@@ -483,32 +601,53 @@ static jboolean removeDeviceNative(JNIEnv *env, jobject object, jstring object_p
  }
  
  static jint enableNative(JNIEnv *env, jobject object) {
@@ -725,7 +1200,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -630,6 +753,20 @@ static jboolean setAuthorizationNative(JNIEnv *env, jobject object, jstring addr
+@@ -630,6 +769,20 @@ static jboolean setAuthorizationNative(JNIEnv *env, jobject object, jstring addr
  
  static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
                           jstring pin, int nativeData) {
@@ -746,7 +1221,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -660,6 +797,14 @@ static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
+@@ -660,6 +813,14 @@ static jboolean setPinNative(JNIEnv *env, jobject object, jstring address,
  
  static jboolean cancelPairingUserInputNative(JNIEnv *env, jobject object,
                                              jstring address, int nativeData) {
@@ -761,7 +1236,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -686,6 +831,12 @@ static jboolean cancelPairingUserInputNative(JNIEnv *env, jobject object,
+@@ -686,6 +847,12 @@ static jboolean cancelPairingUserInputNative(JNIEnv *env, jobject object,
  static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
                                                      jstring path)
  {
@@ -774,7 +1249,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -724,6 +875,63 @@ static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
+@@ -724,6 +891,63 @@ static jobjectArray getDevicePropertiesNative(JNIEnv *env, jobject object,
      return NULL;
  }
  
@@ -838,7 +1313,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
-@@ -731,10 +939,20 @@ static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
+@@ -731,10 +955,20 @@ static jobjectArray getAdapterPropertiesNative(JNIEnv *env, jobject object) {
      if (nat) {
          DBusMessage *msg, *reply;
          DBusError err;
@@ -860,7 +1335,7 @@ index be2e5f3c5c6..ee77250a93f 100644
                                     DBUS_ADAPTER_IFACE, "GetProperties",
                                     DBUS_TYPE_INVALID);
          if (!reply) {
-@@ -771,6 +989,17 @@ static jboolean setAdapterPropertyNative(JNIEnv *env, jobject object, jstring ke
+@@ -771,6 +1005,17 @@ static jboolean setAdapterPropertyNative(JNIEnv *env, jobject object, jstring ke
          const char *c_key = env->GetStringUTFChars(key, NULL);
          dbus_error_init(&err);
  
@@ -878,7 +1353,7 @@ index be2e5f3c5c6..ee77250a93f 100644
          msg = dbus_message_new_method_call(BLUEZ_DBUS_BASE_IFC,
                                             get_adapter_path(env, object),
                                             DBUS_ADAPTER_IFACE, "SetProperty");
-@@ -835,6 +1064,12 @@ static jboolean setAdapterPropertyBooleanNative(JNIEnv *env, jobject object, jst
+@@ -835,6 +1080,12 @@ static jboolean setAdapterPropertyBooleanNative(JNIEnv *env, jobject object, jst
  
  static jboolean setDevicePropertyNative(JNIEnv *env, jobject object, jstring path,
                                                 jstring key, void *value, jint type) {
@@ -891,7 +1366,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      LOGV(__FUNCTION__);
      native_data_t *nat = get_native_data(env, object);
-@@ -892,6 +1127,12 @@ static jboolean setDevicePropertyBooleanNative(JNIEnv *env, jobject object,
+@@ -892,6 +1143,12 @@ static jboolean setDevicePropertyBooleanNative(JNIEnv *env, jobject object,
  static jboolean createDeviceNative(JNIEnv *env, jobject object,
                                                  jstring address) {
      LOGV(__FUNCTION__);
@@ -904,7 +1379,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
-@@ -923,6 +1164,12 @@ static jboolean createDeviceNative(JNIEnv *env, jobject object,
+@@ -923,6 +1180,12 @@ static jboolean createDeviceNative(JNIEnv *env, jobject object,
  static jboolean discoverServicesNative(JNIEnv *env, jobject object,
                                                 jstring path, jstring pattern) {
      LOGV(__FUNCTION__);
@@ -917,7 +1392,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      jobject eventLoop = env->GetObjectField(object, field_mEventLoop);
-@@ -959,6 +1206,12 @@ static jboolean discoverServicesNative(JNIEnv *env, jobject object,
+@@ -959,6 +1222,12 @@ static jboolean discoverServicesNative(JNIEnv *env, jobject object,
  static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
          jstring name, jlong uuidMsb, jlong uuidLsb, jshort channel) {
      LOGV(__FUNCTION__);
@@ -930,7 +1405,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      if (nat) {
-@@ -984,6 +1237,12 @@ static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
+@@ -984,6 +1253,12 @@ static jint addRfcommServiceRecordNative(JNIEnv *env, jobject object,
  
  static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint handle) {
      LOGV(__FUNCTION__);
@@ -943,7 +1418,7 @@ index be2e5f3c5c6..ee77250a93f 100644
  #ifdef HAVE_BLUETOOTH
      native_data_t *nat = get_native_data(env, object);
      if (nat) {
-@@ -1002,6 +1261,12 @@ static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint hand
+@@ -1002,6 +1277,12 @@ static jboolean removeServiceRecordNative(JNIEnv *env, jobject object, jint hand
  static jboolean setLinkTimeoutNative(JNIEnv *env, jobject object, jstring object_path,
                                       jint num_slots) {
      LOGV(__FUNCTION__);

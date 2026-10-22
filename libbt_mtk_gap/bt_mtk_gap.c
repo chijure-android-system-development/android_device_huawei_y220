@@ -431,6 +431,21 @@ int btmtk_gap_bond(const char *addr)
     return send_data(MSG_ID_BT_BM_BONDING_REQ, req, sizeof(req));
 }
 
+/* Unpair: mtkbt drops the link key (bt_bm_delete_trust_req_struct: hdr,
+ * bd_addr, as BONDING_CANCEL_REQ). */
+int btmtk_gap_delete_trust(const char *addr)
+{
+    unsigned char req[12];
+
+    memset(req, 0, sizeof(req));
+    req[0] = 1;
+    req[2] = sizeof(req);
+    if (addr_pack(addr, req + 4) != 0)
+        return -1;
+    LOGI("DELETE_TRUST_REQ %s", addr);
+    return send_data(MSG_ID_BT_BM_DELETE_TRUST_REQ, req, sizeof(req));
+}
+
 int btmtk_gap_bond_cancel(const char *addr)
 {
     unsigned char req[12];
@@ -614,16 +629,6 @@ int btmtk_gap_event_wait(btmtk_gap_event_t *ev, int timeout_ms)
         return 0;
     n -= offsetof(ilm_struct, ilm_data);
 
-    if (ilm.msg_id == MSG_ID_BT_BM_BONDING_RESULT_IND ||
-            ilm.msg_id == MSG_ID_BT_BM_SECURITY_USER_CONFIRM_IND) {
-        /* TEMP: dump to find the remote class of device. */
-        char hex[3 * 40 + 1];
-        int i, m = n < 40 ? n : 40;
-        for (i = 0; i < m; i++)
-            snprintf(hex + 3 * i, 4, "%02x ", ilm.ilm_data[i]);
-        hex[3 * m] = 0;
-        LOGI("msg %lu (%d): %s", ilm.msg_id, n, hex);
-    }
     switch (ilm.msg_id) {
     case MSG_ID_BT_BM_DISCOVERY_RESULT_IND:
     case MSG_ID_BT_BM_DISCOVERY_UPDATE_IND:
@@ -658,11 +663,16 @@ int btmtk_gap_event_wait(btmtk_gap_event_t *ev, int timeout_ms)
         ev->type = BTMTK_GAP_EV_PIN_REQUEST;
         return 1;
     case MSG_ID_BT_BM_BONDING_RESULT_IND:
-        /* hdr, result, pad, bd_addr at 8, cod, link key type, key. */
+        /* hdr, result, pad, bd_addr at 8, cod at 16, link key type at 20,
+         * key at 24 (44 bytes). The class is only valid when result is 0;
+         * an incoming pairing has no other source for it. */
         if (n < 16)
             return 0;
         ev->result = ilm.ilm_data[4];
         addr_unpack(ilm.ilm_data + 8, ev->addr, sizeof(ev->addr));
+        if (ev->result == 0 && n >= 20)
+            ev->cod = (ilm.ilm_data[16] | (ilm.ilm_data[17] << 8) |
+                       (ilm.ilm_data[18] << 16)) & 0xffffff;
         ev->type = BTMTK_GAP_EV_BOND_RESULT;
         return 1;
     case MSG_ID_BT_BM_REMOTE_NAME_IND:

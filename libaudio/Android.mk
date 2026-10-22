@@ -4,7 +4,12 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := libaudio
 LOCAL_MODULE_TAGS := optional
 LOCAL_SRC_FILES := AudioHardware.cpp
-LOCAL_SHARED_LIBRARIES := liblog libcutils libutils libmedia libhardware_legacy liba2dp
+LOCAL_SHARED_LIBRARIES := liblog libcutils libutils libmedia libhardware_legacy
+# A2dpAudioInterface (libaudiointerface) calls the liba2dp API. mtkbt takes
+# SBC from the stock libmtka2dp, which exports the same functions; the BlueZ
+# liba2dp would talk to a bluetoothd that does not run here.
+LOCAL_LDFLAGS := vendor/huawei/y220/proprietary/lib/libmtka2dp.so \
+    -Wl,-rpath-link,vendor/huawei/y220/proprietary/lib
 LOCAL_STATIC_LIBRARIES := libaudiointerface
 LOCAL_C_INCLUDES := \
     hardware/libhardware_legacy/include \

@@ -52,6 +52,7 @@ PRODUCT_PACKAGES += \
     mediaserver \
     libbt_mtk_gap \
     libbt_mtk_opp \
+    libbt_mtk_a2dp \
     libmtk_shim \
     FMRadio
 

@@ -18,6 +18,7 @@ int btmtk_gap_discovery_cancel(void);
 /* Pairing. addr is "AA:BB:CC:DD:EE:FF". 0 when the message went out. */
 int btmtk_gap_bond(const char *addr);
 int btmtk_gap_bond_cancel(const char *addr);
+int btmtk_gap_delete_trust(const char *addr);
 int btmtk_gap_user_confirm(const char *addr, int accept);
 int btmtk_gap_pin_reply(const char *addr, const unsigned char *pin, int len);
 
@@ -36,7 +37,7 @@ enum {
     BTMTK_GAP_EV_DISCOVERY_FINISHED,
     BTMTK_GAP_EV_USER_CONFIRM,   /* addr, passkey */
     BTMTK_GAP_EV_PIN_REQUEST,    /* addr */
-    BTMTK_GAP_EV_BOND_RESULT,    /* addr, result (0 = bonded) */
+    BTMTK_GAP_EV_BOND_RESULT,    /* addr, result (0 = bonded), cod */
     BTMTK_GAP_EV_REMOTE_NAME,    /* addr, name */
 };
 

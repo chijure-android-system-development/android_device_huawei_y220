@@ -290,6 +290,8 @@ if section bt "BLUETOOTH"; then
         fail "bt_mtk_gap: errores" "$(echo "$_bad" | grep -c .)"
         echo "$_bad" | sed 's/^[^:]*: //' | sort | uniq -c | head -5 | while read -r l; do detail "$l"; done
     fi
+    if grep -q "bt_mtk_a2dp.*A2DP activate sent" "$LC"; then pass "A2DP activado en mtkbt"; \
+    else fail "A2DP" "sin 'A2DP activate sent' (libbt_mtk_a2dp)"; fi
     # Perfiles BlueZ (OPP, SCO, RFCOMM, PAN) abren sockets AF_BLUETOOTH; el
     # kernel MTK no tiene BlueZ, mtkbt lleva los perfiles. Los servidores de
     # AOSP que reintentan sin socket son conocidos: SCO (manos libres) y PBAP.
