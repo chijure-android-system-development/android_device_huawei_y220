@@ -126,6 +126,9 @@ Los objetos siguientes de la misma conexión se aceptan solos, como en AOSP.
 Probado el 2026-10-21: un JPEG de 205599 bytes desde otro teléfono llegó
 completo a `/mnt/sdcard/bluetooth/`, estado 200 y escaneado por el media
 scanner.
+Rechazado desde la notificación: respuesta 0x43, el emisor cortó a los
+170 ms y lo mostró como rechazado, el share quedó en 490 (cancelado) y se
+borró el archivo reservado.
 
 ## Pendientes
 
