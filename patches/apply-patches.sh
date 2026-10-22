@@ -136,9 +136,19 @@ apply frameworks/base frameworks_base_servicemanager_bluetooth.patch
 # LayerBuffer del Y220 ignora hor_stride y mostraba la imagen torcida.
 apply frameworks/base frameworks_base_stagefright_mtk_omx.patch
 
-# Anclaje USB: el gadget android_usb del kernel 3.4 no tiene
-# usb_composite/rndis. netd cambia android0/functions a rndis,adb y luego
-# restaura la lista; Settings enciende RNDIS antes de anclar porque rndis0
-# solo existe mientras la función está activa.
-apply system/netd system_netd_android_usb_rndis.patch
+# Anclaje USB: rndis0 solo existe mientras la función rndis del gadget
+# android_usb está activa (netd/UsbController.cpp del device tree la
+# enciende). Settings enciende RNDIS antes de anclar.
 apply packages/apps/Settings packages_apps_Settings_rndis_on_demand.patch
+
+# Zona Wi-Fi: netd toma el SoftapController del device tree
+# (BOARD_CUSTOM_SOFTAP_CONTROLLER, como BOARD_CUSTOM_USB_CONTROLLER).
+apply system/netd system_netd_custom_softap.patch
+
+# logwrapper de netd: waitpid del hijo propio. wait() recogía el pand
+# fallido (zombi tras encender BT) y el primer iptables del NAT "fallaba".
+apply system/netd system_netd_logwrapper_waitpid.patch
+
+# hostapd 0.8 (external/wpa_supplicant_8, CM ics): sin interfaz monitor
+# (ap0 de wlan_mt6582 no la permite) el EAPOL sale por PF_PACKET en ap0.
+apply external/wpa_supplicant_8 external_wpa_supplicant_8_nl80211_eapol.patch

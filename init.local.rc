@@ -16,6 +16,13 @@ service iprenew_wlan0 /system/bin/dhcpcd -n
     disabled
     oneshot
 
+# Hotspot on ap0 (netd SoftapController writes the config and starts it).
+service hostapd /system/bin/hostapd /data/misc/wifi/hostapd.conf
+    user root
+    group wifi inet net_admin net_raw
+    disabled
+    oneshot
+
 on property:sys.boot_completed=1
     start mtkbt
 

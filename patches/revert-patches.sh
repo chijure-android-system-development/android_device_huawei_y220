@@ -16,8 +16,10 @@ revert() {
     (cd "$CM7_ROOT/$project" && git apply --reverse "$PATCHES_DIR/$patch")
 }
 
+revert external/wpa_supplicant_8 external_wpa_supplicant_8_nl80211_eapol.patch
+revert system/netd system_netd_logwrapper_waitpid.patch
+revert system/netd system_netd_custom_softap.patch
 revert packages/apps/Settings packages_apps_Settings_rndis_on_demand.patch
-revert system/netd system_netd_android_usb_rndis.patch
 revert frameworks/base frameworks_base_stagefright_mtk_omx.patch
 revert frameworks/base frameworks_base_servicemanager_bluetooth.patch
 revert packages/apps/Bluetooth packages_apps_Bluetooth_opp_mtk.patch

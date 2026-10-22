@@ -6,6 +6,11 @@
         <item>"rndis\\d"</item>
     </string-array>
 
+    <!-- Hotspot. wlan_mt6582 names its AP interface ap0. -->
+    <string-array name="config_tether_wifi_regexs" translatable="false">
+        <item>"ap\\d"</item>
+    </string-array>
+
     <!-- WiFi first: when both are up it is the default route. ccmni0 is the
          MTK modem data link. -->
     <string-array name="config_tether_upstream_regexs" translatable="false">

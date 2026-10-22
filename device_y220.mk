@@ -54,6 +54,7 @@ PRODUCT_PACKAGES += \
     libbt_mtk_opp \
     libbt_mtk_a2dp \
     libmtk_shim \
+    hostapd \
     FMRadio
 
 # Same place as the Y210 tree. This is the AOSP base (Settings, Phone,

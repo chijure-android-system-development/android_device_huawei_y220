@@ -51,6 +51,8 @@ tras el wipe no hubo teclado. `RomManager.apk` (stub de CM7) se ignora.
 - Decoders de video MTK: ver `VIDEO_NOTES.md`.
 - Anclaje USB (2026-10-22): kernel `#93` con netfilter, netd y Settings para
   el gadget `android_usb`; ver la sección "Anclaje USB" del README.
+- Zona Wi-Fi (2026-10-22): `ap0` del driver + hostapd 0.8 nl80211; ver la
+  sección "Zona Wi-Fi" del README.
 
 ## No son bugs
 

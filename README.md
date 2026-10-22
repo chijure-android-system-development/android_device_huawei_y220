@@ -604,9 +604,9 @@ El netd de GB (también el de stock) activa RNDIS en
 `/sys/class/usb_composite/rndis/enable`, pero el kernel 3.4 usa el gadget
 `android_usb`:
 
-- `system_netd_android_usb_rndis.patch`: si existe `android0/functions`,
-  netd pone `rndis,adb` y al terminar restaura la lista anterior
-  (`mass_storage,adb`). adb sigue conectado.
+- `netd/UsbController.cpp` (vía `BOARD_CUSTOM_USB_CONTROLLER`, sin parche):
+  si existe `android0/functions`, netd pone `rndis,adb` y al terminar
+  restaura la lista anterior (`mass_storage,adb`). adb sigue conectado.
 - `packages_apps_Settings_rndis_on_demand.patch`: `rndis0` solo existe
   mientras la función está activa, y Settings solo dejaba anclar una
   interfaz que ya existiera. Con el cable conectado, la casilla primero
@@ -619,6 +619,48 @@ Probado el 2026-10-22: el PC (Linux, `rndis_host`) recibe 192.168.42.x por
 dnsmasq, navega por `ccmni0` con NAT y resuelve DNS. Al desmarcar vuelve
 `mass_storage,adb`. El ping a internet falla también desde el teléfono: Claro
 filtra ICMP.
+
+## Zona Wi-Fi
+
+Probado el 2026-10-22: WPA2, el cliente recibe 192.168.43.x por dnsmasq y
+navega por `ccmni0` con NAT, también en el primer encendido tras arrancar.
+
+El driver `wlan_mt6582` crea su interfaz AP con el ioctl privado
+`set_p2p_mode 1 1` sobre `wlan0` (sub-ioctl 28 de `SIOCIWFIRSTPRIV`): aparece
+`ap0`, solo cfg80211, sin handlers wext. El `p2p_supplicant` wext de stock
+iba con el `p2p.ko` del kernel de 2014 y no sirve; el hostapd 0.6 de GB
+tampoco (necesita interfaz monitor y libnl).
+
+- hostapd 0.8 (nl80211) de CM ics: dos repos extra fuera del manifiesto,
+  `external/wpa_supplicant_8`
+  (github.com/CyanogenMod/android_external_wpa_supplicant_8, ics, 84507b8) y
+  `external/libnl-headers`
+  (github.com/CyanogenMod/android_external_libnl-headers, ics, 6ccf734).
+  `hostapd/Android.mk` lo incluye con `BOARD_HOSTAPD_DRIVER := NL80211`
+  (el `Android.mk` raíz de wpa_supplicant_8 solo entra con VER_0_8_X).
+  `libnl_2/` es el `system/core/libnl_2` de ICS. `include/linux/` trae
+  `genetlink.h` e `in_route.h`, que bionic GB no tiene
+  (`TARGET_SPECIFIC_HEADER_PATH`). `hostapd/hostapd_mtk.c` da el hook
+  `wpa_driver_nl80211_driver_cmd` vacío y `get_rfc3526_prime_1536` (WPS),
+  que falta en el OpenSSL 0.9.8 de GB.
+- `ap0` no permite interfaz monitor (`mon.ap0: -95`). hostapd recibe los
+  frames de gestión por nl80211, pero mandaba el EAPOL por el monitor y el
+  4-way de WPA2 nunca terminaba (`i802_send_eapol ... Bad file number`).
+  `external_wpa_supplicant_8_nl80211_eapol.patch` lo envía por PF_PACKET
+  en `ap0`.
+- hostapd ICS baja a uid `wifi` al iniciar (`os_program_init`): netd deja
+  `/data/misc/wifi/hostapd.conf` y el directorio de control como `wifi`.
+- `netd/SoftapController.cpp` (`BOARD_CUSTOM_SOFTAP_CONTROLLER`,
+  `system_netd_custom_softap.patch`): `set` escribe la config (SSID,
+  open/WPA/WPA2, canal 6), `startap` enciende `wlan0`, crea `ap0` y arranca
+  el servicio `hostapd` de `init.local.rc`; `stopap` lo para y quita `ap0`.
+  La interfaz que pasa el framework (`wl0.1`) se ignora.
+- Overlay: `config_tether_wifi_regexs` = `ap\d`.
+- `system_netd_logwrapper_waitpid.patch`: al encender BT, `PanController`
+  lanza `pand` (BlueZ), que sale con 255 y queda zombi. El `wait()` del
+  logwrapper de netd lo recogía en el primer iptables y netd abortaba el NAT
+  sin `MASQUERADE` (el cliente conectaba sin internet). Ahora espera a su
+  propio hijo.
 
 ## Pendientes conocidos
 

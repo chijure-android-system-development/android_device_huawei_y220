@@ -1,0 +1,33 @@
+diff --git a/logwrapper.c b/logwrapper.c
+index 739f141..d29b911 100644
+--- a/logwrapper.c
++++ b/logwrapper.c
+@@ -26,7 +26,7 @@
+ #include "private/android_filesystem_config.h"
+ #include "cutils/log.h"
+ 
+-int parent(const char *tag, int parent_read) {
++int parent(const char *tag, int parent_read, pid_t pid) {
+     int status;
+     char buffer[4096];
+ 
+@@ -70,7 +70,9 @@ int parent(const char *tag, int parent_read) {
+         LOG(LOG_INFO, tag, "%s", &buffer[a]);
+     }
+     status = 0xAAAA;
+-    if (wait(&status) != -1) {  // Wait for child
++    // Wait for this child only: wait() would reap any other exited child
++    // of netd (a failed pand, for one) and return its status instead.
++    if (waitpid(pid, &status, 0) != -1) {
+         if (WIFEXITED(status)) {
+             if (WEXITSTATUS(status) != 0) {
+                 LOG(LOG_INFO, "logwrapper", "%s terminated by exit(%d)", tag,
+@@ -168,7 +170,7 @@ int logwrap(int argc, const char* argv[], int background)
+         /*
+          * Parent
+          */
+-        int rc = parent(argv[0], parent_ptty);
++        int rc = parent(argv[0], parent_ptty, pid);
+         close(parent_ptty);
+         return rc;
+     }

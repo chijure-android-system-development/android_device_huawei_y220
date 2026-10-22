@@ -109,6 +109,16 @@ WIFI_DRIVER_MODULE_ARG := ""
 # hardware/libhardware_legacy already waits for this oneshot loader to set
 # wlan.driver.status. The device service powers WMT and waits for wlan0.
 WIFI_FIRMWARE_LOADER := wmt_wifi_loader
+# Hotspot: `iwpriv wlan0 set_p2p_mode 1 1` makes ap0 (cfg80211 only), run
+# by hostapd 0.8 over nl80211 (hostapd/, external/wpa_supplicant_8).
+BOARD_HOSTAPD_DRIVER := NL80211
+# Bionic GB has no linux/genetlink.h or linux/in_route.h, which libnl-headers
+# needs. include/ holds only those (copied from the ICS bionic kernel headers).
+TARGET_SPECIFIC_HEADER_PATH := device/huawei/y220/include
+# netd: RNDIS through the android_usb gadget, and the hotspot (set_p2p_mode
+# makes ap0, hostapd runs it). Paths are relative to system/netd.
+BOARD_CUSTOM_USB_CONTROLLER := ../../device/huawei/y220/netd/UsbController.cpp
+BOARD_CUSTOM_SOFTAP_CONTROLLER := ../../device/huawei/y220/netd/SoftapController.cpp
 
 # MTK OMX video decoders (OMX.MTK.VIDEO.DECODER.*) in OMXCodec, and the
 # SoftwareRenderer crop of their 32-pixel stride padding.
