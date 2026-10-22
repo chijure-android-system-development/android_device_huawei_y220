@@ -13,7 +13,19 @@ LOCAL_SRC_FILES := hostapd_mtk.c
 LOCAL_C_INCLUDES := external/openssl/include
 include $(BUILD_STATIC_LIBRARY)
 
+# The hostapd makefile sets global variables (CONFIG_*, NEED_*, OBJS...) that
+# wpa_supplicant_6 reads too; with CONFIG_DRIVER_NL80211 left set it builds
+# its nl80211 driver and fails. Save them and put them back afterwards.
+hostapd_leaks := AESOBJS CHAP HOBJS INCLUDES L_CFLAGS LDFLAGS LIBS LIBS_c \
+    LIBS_h MS_FUNCS OBJS OBJS_c OBJS_d OBJS_p PN531_PATH SHA1OBJS TLS_FUNCS \
+    WPA_BUILD_HOSTAPD
+hostapd_vars := $(sort $(filter CONFIG_% NEED_%,$(.VARIABLES)) $(hostapd_leaks))
+$(foreach v,$(hostapd_vars),$(eval hostapd_save.$(v) := $$(value $(v))))
+
 BOARD_HOSTAPD_PRIVATE_LIB := libhostapd_mtk
 include external/wpa_supplicant_8/hostapd/Android.mk
+
+$(foreach v,$(sort $(filter CONFIG_% NEED_%,$(.VARIABLES)) $(hostapd_leaks)), \
+    $(eval $(v) := $$(hostapd_save.$(v))))
 
 endif
