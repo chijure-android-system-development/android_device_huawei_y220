@@ -418,8 +418,10 @@ La tabla de tasas del AFE es 8k=0, 16k=4, 32k=8, 44.1k=9, 48k=10; el enum
 de `AudDrv_Afe.h` (44100=7) no corresponde al hardware.
 
 Auriculares, selección de salida, grabar mientras suena algo y la ruta FM:
-ver [`docs/AUDIO_NOTES.md`](docs/AUDIO_NOTES.md). Falta: voz en llamadas
-(`setMode` solo loguea) y volumen de música por hardware.
+ver [`docs/AUDIO_NOTES.md`](docs/AUDIO_NOTES.md). Llamadas de voz (CCCI con
+el módem, rutas, volumen y los botones Silenciar/Teclado):
+[`docs/CALL_NOTES.md`](docs/CALL_NOTES.md). Falta: volumen de música por
+hardware.
 
 Cámara (vista previa tras la foto, resolución, cómo capturar log y
 pantalla): [`docs/CAMERA_NOTES.md`](docs/CAMERA_NOTES.md).
@@ -493,7 +495,8 @@ Medido el 2026-10-21 con `stagefright` en un H.264 640x480 de 1,5 Mbps:
 CPU del sistema (362 contra 680 ticks). Se verificó la imagen en pantalla
 con 176x144, 192x144, 320x180, 320x240 y H.263 352x288. Las miniaturas
 siguen usando software primero. La grabación sigue con el encoder de
-software (los encoders MTK no están en la tabla).
+software (los encoders MTK no están en la tabla). Detalle:
+[`docs/VIDEO_NOTES.md`](docs/VIDEO_NOTES.md).
 
 ## Revisión de blobs
 
@@ -509,7 +512,8 @@ demás sale como NUEVO y el script termina con 1. `dltest` se compila con
 La comparación del 2026-10-21 contra stock encontró que faltaban la
 política térmica (`09thermal`) y `dalvik.vm.heapsize` (Dalvik usaba 16m).
 El `gps.default.so` de stock es un stub vacío: el Y220-U05 no tiene GPS. De
-sensores solo hay acelerómetro, como en stock.
+sensores solo hay acelerómetro, como en stock. Detalle:
+[`docs/SYSTEM_NOTES.md`](docs/SYSTEM_NOTES.md).
 
 ## Pendientes conocidos
 
