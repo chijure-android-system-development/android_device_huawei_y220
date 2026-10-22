@@ -473,10 +473,27 @@ nombre y un `CHECK` abortaba mediaserver (se caían audio, cámara y
 reproductor). `frameworks_base_stagefright_mtk_i420.patch` lo mapea a
 `OMX_COLOR_FormatYUV420Planar` y codifica el encoder por software.
 
-No enlazan en CM7 (sin uso hoy): `libvcodecdrv.so`, `libvcodec_utility.so`,
-`libMtkOmxVdec.so` (`__pthread_gettid`), `libstagefrighthw.so`
-(`MemoryHeapBaseMTK`), `libSwJpgCodec.so` (`jpeg_decompress_struct` de MTK).
-`vcodec_kernel_driver.ko` no se carga.
+La reproducción usa los decoders de hardware de MTK
+(`OMX.MTK.VIDEO.DECODER.AVC`, `MPEG4` y `H263`):
+
+- `libmtk_shim` (precargado en mediaserver por `init.rc`) da lo que los
+  blobs toman del bionic y del libbinder/libstagefright de MTK:
+  `sched_getaffinity`, `sched_setaffinity`, `__pthread_gettid`,
+  `MemoryHeapBaseMTK` y `AwesomePlayer::mtk_omx_get_current_time`.
+- `init.d/10vcodec` carga `vcodec_kernel_driver.ko` y crea `/dev/Vcodec`
+  como `media:system` (mediaserver corre con uid media y gid system).
+- `frameworks_base_stagefright_mtk_omx.patch` (`BOARD_USES_MTK_OMX`) pone
+  los decoders MTK primero en OMXCodec y usa `nStride`/`nSliceHeight` como
+  tamaño decodificado. El decoder rellena el stride a 32 píxeles (176 de
+  ancho sale con 192) y el `LayerBuffer` del Y220 ignora `hor_stride`, así
+  que `SoftwareRenderer` recorta los planos al tamaño visible.
+
+Medido el 2026-10-21 con `stagefright` en un H.264 640x480 de 1,5 Mbps:
+14,9 ms por cuadro contra 26,8 ms del decoder de software, y la mitad de
+CPU del sistema (362 contra 680 ticks). Se verificó la imagen en pantalla
+con 176x144, 192x144, 320x180, 320x240 y H.263 352x288. Las miniaturas
+siguen usando software primero. La grabación sigue con el encoder de
+software (los encoders MTK no están en la tabla).
 
 ## Revisión de blobs
 

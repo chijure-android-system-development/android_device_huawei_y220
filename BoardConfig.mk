@@ -86,3 +86,8 @@ BOARD_WPA_SUPPLICANT_PRIVATE_INCLUDES := device/huawei/y220/libwpa_mtk_wext
 WIFI_DRIVER_MODULE_PATH := /system/lib/modules/wlan_mt6582.ko
 WIFI_DRIVER_MODULE_NAME := wlan_mt6582
 WIFI_DRIVER_MODULE_ARG := ""
+
+# MTK OMX video decoders (OMX.MTK.VIDEO.DECODER.*) in OMXCodec, and the
+# SoftwareRenderer crop of their 32-pixel stride padding.
+# See frameworks_base_stagefright_mtk_omx.patch and libmtk_shim.
+BOARD_USES_MTK_OMX := true

@@ -131,3 +131,8 @@ apply packages/apps/Bluetooth packages_apps_Bluetooth_opp_mtk.patch
 # mtkbt publica sus servicios ashmem (mtk.bt.profile.*.ashm) y, si no puede,
 # muere con SIGSEGV al encender BT.
 apply frameworks/base frameworks_base_servicemanager_bluetooth.patch
+
+# OMXCodec usa los decoders de video MTK (BOARD_USES_MTK_OMX) y
+# SoftwareRenderer recorta el padding de stride 32 que entregan; el
+# LayerBuffer del Y220 ignora hor_stride y mostraba la imagen torcida.
+apply frameworks/base frameworks_base_stagefright_mtk_omx.patch

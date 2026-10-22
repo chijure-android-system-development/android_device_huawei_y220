@@ -1,0 +1,163 @@
+diff --git a/media/libstagefright/OMXCodec.cpp b/media/libstagefright/OMXCodec.cpp
+index 592ca05c785..fd7482421a8 100644
+--- a/media/libstagefright/OMXCodec.cpp
++++ b/media/libstagefright/OMXCodec.cpp
+@@ -315,6 +315,11 @@ static const CodecInfo kEncoderInfo[] = {
+ #endif
+ #else
+ static const CodecInfo kDecoderInfo[] = {
++#ifdef BOARD_USES_MTK_OMX
++    { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.MTK.VIDEO.DECODER.AVC" },
++    { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.MTK.VIDEO.DECODER.MPEG4" },
++    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.MTK.VIDEO.DECODER.H263" },
++#endif
+     { MEDIA_MIMETYPE_IMAGE_JPEG, "OMX.TI.JPEG.decoder" },
+     { MEDIA_MIMETYPE_AUDIO_MPEG, "OMX.Nvidia.mp3.decoder" },
+ //    { MEDIA_MIMETYPE_AUDIO_MPEG, "OMX.TI.MP3.decode" },
+@@ -5669,6 +5674,16 @@ void OMXCodec::initOutputFormat(const sp<MetaData> &inputFormat) {
+                 //Some hardware expects the old behavior
+                 mOutputFormat->setInt32(kKeyWidth, video_def->nFrameWidth);
+                 mOutputFormat->setInt32(kKeyHeight, video_def->nFrameHeight);
++#ifdef BOARD_USES_MTK_OMX
++                // MTK decoders pad Y lines to 32 pixels (176 wide comes out
++                // with stride 192) and report it in nStride/nSliceHeight.
++                // The renderer crops back to the track size.
++                if (!strncmp(mComponentName, "OMX.MTK.", 8)
++                        && video_def->nStride > 0 && video_def->nSliceHeight > 0) {
++                    mOutputFormat->setInt32(kKeyWidth, video_def->nStride);
++                    mOutputFormat->setInt32(kKeyHeight, video_def->nSliceHeight);
++                }
++#endif
+ #endif
+             }
+ 
+diff --git a/media/libstagefright/colorconversion/Android.mk b/media/libstagefright/colorconversion/Android.mk
+index 49e6a812b5a..2a166eaf816 100644
+--- a/media/libstagefright/colorconversion/Android.mk
++++ b/media/libstagefright/colorconversion/Android.mk
+@@ -25,6 +25,10 @@ ifeq ($(TARGET_BOARD_PLATFORM),omap4)
+ LOCAL_CFLAGS += -DTARGET_OMAP4 -DARM_4K_PAGE_SIZE=4096
+ endif
+ 
++ifeq ($(BOARD_USES_MTK_OMX),true)
++LOCAL_CFLAGS += -DBOARD_USES_MTK_OMX
++endif
++
+ LOCAL_MODULE:= libstagefright_color_conversion
+ 
+ include $(BUILD_SHARED_LIBRARY)
+diff --git a/media/libstagefright/colorconversion/SoftwareRenderer.cpp b/media/libstagefright/colorconversion/SoftwareRenderer.cpp
+index 1a058bae9cf..20a9ca9d1af 100644
+--- a/media/libstagefright/colorconversion/SoftwareRenderer.cpp
++++ b/media/libstagefright/colorconversion/SoftwareRenderer.cpp
+@@ -17,6 +17,8 @@
+ #define LOG_TAG "SoftwareRenderer"
+ #include <utils/Log.h>
+ 
++#include <string.h>
++
+ #include "../include/SoftwareRenderer.h"
+ 
+ #include <binder/MemoryHeapBase.h>
+@@ -26,6 +28,21 @@
+ 
+ namespace android {
+ 
++#ifdef BOARD_USES_MTK_OMX
++// MTK decoders hand out planar frames padded to a 32 pixel stride (176
++// wide comes out 192). The Y220 LayerBuffer ignores hor_stride and shows
++// a padded RGB buffer skewed, so crop the planes here and register a
++// buffer of exactly the display size.
++static bool cropsPadding(OMX_COLOR_FORMATTYPE colorFormat,
++        size_t displayWidth, size_t displayHeight,
++        size_t decodedWidth, size_t decodedHeight) {
++    return colorFormat == OMX_COLOR_FormatYUV420Planar
++        && (displayWidth != decodedWidth || displayHeight != decodedHeight)
++        && displayWidth <= decodedWidth && displayHeight <= decodedHeight
++        && !(displayWidth & 1) && !(displayHeight & 1);
++}
++#endif
++
+ SoftwareRenderer::SoftwareRenderer(
+         OMX_COLOR_FORMATTYPE colorFormat,
+         const sp<ISurface> &surface,
+@@ -42,10 +59,22 @@ SoftwareRenderer::SoftwareRenderer(
+       mDecodedHeight(decodedHeight),
+       mFrameSize(mDecodedWidth * mDecodedHeight * 2),  // RGB565
+       mIndex(0) {
+-    mMemoryHeap = new MemoryHeapBase("/dev/pmem_adsp", 2 * mFrameSize);
++    size_t heapSize = 2 * mFrameSize;
++    size_t heapWidth = mDecodedWidth, heapHeight = mDecodedHeight;
++#ifdef BOARD_USES_MTK_OMX
++    if (cropsPadding(mColorFormat, mDisplayWidth, mDisplayHeight,
++            mDecodedWidth, mDecodedHeight)) {
++        // Two RGB frames, then the cropped YUV frame.
++        mFrameSize = mDisplayWidth * mDisplayHeight * 2;
++        heapSize = 2 * mFrameSize + mDisplayWidth * mDisplayHeight * 3 / 2;
++        heapWidth = mDisplayWidth;
++        heapHeight = mDisplayHeight;
++    }
++#endif
++    mMemoryHeap = new MemoryHeapBase("/dev/pmem_adsp", heapSize);
+     if (mMemoryHeap->heapID() < 0) {
+         LOGI("Creating physical memory heap failed, reverting to regular heap.");
+-        mMemoryHeap = new MemoryHeapBase(2 * mFrameSize);
++        mMemoryHeap = new MemoryHeapBase(heapSize);
+     } else {
+         sp<MemoryHeapPmem> pmemHeap = new MemoryHeapPmem(mMemoryHeap);
+         pmemHeap->slap();
+@@ -69,7 +98,7 @@ SoftwareRenderer::SoftwareRenderer(
+ 
+     ISurface::BufferHeap bufferHeap(
+             mDisplayWidth, mDisplayHeight,
+-            mDecodedWidth, mDecodedHeight,
++            heapWidth, heapHeight,
+             PIXEL_FORMAT_RGB_565,
+             orientation, 0,
+             mMemoryHeap);
+@@ -100,6 +129,31 @@ void SoftwareRenderer::render(
+     size_t offset = mIndex * mFrameSize;
+     void *dst = (uint8_t *)mMemoryHeap->getBase() + offset;
+ 
++#ifdef BOARD_USES_MTK_OMX
++    if (cropsPadding(mColorFormat, mDisplayWidth, mDisplayHeight,
++            mDecodedWidth, mDecodedHeight)) {
++        const uint8_t *src = (const uint8_t *)data;
++        uint8_t *crop = (uint8_t *)mMemoryHeap->getBase() + 2 * mFrameSize;
++        uint8_t *out = crop;
++        size_t y;
++
++        for (y = 0; y < mDisplayHeight; y++, out += mDisplayWidth)
++            memcpy(out, src + y * mDecodedWidth, mDisplayWidth);
++        // U, then V; each a quarter of the padded frame.
++        for (int plane = 0; plane < 2; plane++) {
++            const uint8_t *chroma = src + mDecodedWidth * mDecodedHeight
++                    + plane * (mDecodedWidth / 2) * (mDecodedHeight / 2);
++            for (y = 0; y < mDisplayHeight / 2; y++, out += mDisplayWidth / 2)
++                memcpy(out, chroma + y * (mDecodedWidth / 2), mDisplayWidth / 2);
++        }
++        mConverter.convert(
++                mDisplayWidth, mDisplayHeight,
++                crop, 0, dst, 2 * mDisplayWidth);
++        mISurface->postBuffer(offset);
++        mIndex = 1 - mIndex;
++        return;
++    }
++#endif
+     mConverter.convert(
+             mDecodedWidth, mDecodedHeight,
+             data, 0, dst, 2 * mDecodedWidth);
+diff --git a/media/libstagefright/Android.mk b/media/libstagefright/Android.mk
+--- a/media/libstagefright/Android.mk
++++ b/media/libstagefright/Android.mk
+@@ -167,6 +167,10 @@
+ 
+ LOCAL_CFLAGS += -Wno-multichar
+ 
++ifeq ($(BOARD_USES_MTK_OMX),true)
++LOCAL_CFLAGS += -DBOARD_USES_MTK_OMX
++endif
++
+ LOCAL_MODULE:= libstagefright
+ 
+ include $(BUILD_SHARED_LIBRARY)
