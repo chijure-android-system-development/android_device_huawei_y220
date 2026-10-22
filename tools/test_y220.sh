@@ -4,11 +4,14 @@
 #
 # Uso (desde raíz del árbol CM7 o en cualquier directorio):
 #   bash device/huawei/y220/tools/test_y220.sh [--fast] [--section <nombre>]
+#        [--zip <cm-7-*.zip>]
 #
 # Opciones:
 #   --fast        Omite tests que requieren espera
-#   --section X   Ejecuta solo esa sección (boot|bugs|display|audio|wifi|bt|
-#                 fm|sensors|ril|storage|power)
+#   --section X   Ejecuta solo esa sección (zip|boot|bugs|display|audio|wifi|
+#                 bt|fm|sensors|ril|storage|power)
+#   --zip F       Antes de flashear: prueba que cada apk/jar del zip sea un zip
+#                 válido. Con --section zip no hace falta el teléfono.
 #
 # Requiere: adb en PATH, un dispositivo conectado (o ANDROID_SERIAL=Y220-U05).
 
@@ -16,14 +19,17 @@ RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'
 CYN='\033[0;36m'; BLD='\033[1m'; RST='\033[0m'
 
 PASS=0; FAIL=0; SKIP=0; MANUAL=0
-FAST=false; FILTER=""
+FAST=false; FILTER=""; ZIP=""
+# Stub de 3449 bytes de vendor/cyanogen/proprietary; CM7 lo trae así.
+KNOWN_BAD_APKS="RomManager.apk"
 LOG=/tmp/test_y220_$(date +%Y%m%d_%H%M%S).log
 echo "test_y220.sh  $(date)" > "$LOG"
 
 _arg=""
 for a in "$@"; do
     if [[ "$_arg" == "--section" ]]; then FILTER="$a"; _arg=""; continue; fi
-    case $a in --fast) FAST=true ;; --section) _arg="--section" ;; esac
+    if [[ "$_arg" == "--zip" ]]; then ZIP="$a"; _arg=""; continue; fi
+    case $a in --fast) FAST=true ;; --section) _arg="--section" ;; --zip) _arg="--zip" ;; esac
 done
 
 # ── primitivas ────────────────────────────────────────────────────────────────
@@ -61,6 +67,31 @@ chk_svc() {
     if [[ "$_st" == "running" ]]; then pass "servicio $1 running"; \
     else fail "servicio $1" "init.svc.$1='$_st'"; fi
 }
+
+# ── 0. zip (en el PC) ─────────────────────────────────────────────────────────
+
+# Una build cortada (OOM) dejó LatinIME.apk truncado con fecha nueva; la build
+# siguiente lo empaquetó y tras un wipe no hubo teclado.
+if [[ -n "$ZIP" ]] && section zip "ZIP (antes de flashear)"; then
+    if [[ ! -f "$ZIP" ]]; then
+        fail "Zip" "no existe: $ZIP"
+    else
+        _zd=$(mktemp -d)
+        unzip -q "$ZIP" 'system/app/*' 'system/framework/*' -d "$_zd" 2>/dev/null
+        _bad=""; _n=0
+        for f in "$_zd"/system/app/*.apk "$_zd"/system/framework/*.jar "$_zd"/system/framework/*.apk; do
+            [[ -f "$f" ]] || continue
+            _n=$((_n+1))
+            unzip -tq "$f" >/dev/null 2>&1 && continue
+            [[ " $KNOWN_BAD_APKS " == *" $(basename "$f") "* ]] && continue
+            _bad="$_bad $(basename "$f")"
+        done
+        rm -rf "$_zd"
+        if [[ -z "$_bad" ]]; then pass "$_n apk/jar del zip íntegros"; \
+        else fail "apk/jar rotos en el zip" "$_bad"; fi
+    fi
+fi
+[[ "$FILTER" == "zip" ]] && { echo ""; echo "PASS: $PASS  FAIL: $FAIL"; exit $((FAIL > 0)); }
 
 # ── pre-check ─────────────────────────────────────────────────────────────────
 
@@ -163,6 +194,24 @@ if section bugs "CAZA DE BUGS (arranque actual)"; then
     else
         fail "Librerías faltantes/sin símbolos" "$(echo "$_lib" | grep -c .)"
         echo "$_lib" | head -5 | while read -r l; do detail "$l"; done
+    fi
+
+    # Un apk de /system/app que PackageManager no registró está roto (así quedó
+    # LatinIME.apk tras una build cortada).
+    _reg=$(adb_sh "pm list packages -f" | sed 's/^package://; s/=.*//')
+    _unreg=""
+    for a in $(adb_sh "ls /system/app" | grep '\.apk$'); do
+        [[ " $KNOWN_BAD_APKS " == *" $a "* ]] && continue
+        echo "$_reg" | grep -qx "/system/app/$a" || _unreg="$_unreg $a"
+    done
+    if [[ -z "$_unreg" ]]; then pass "Todos los apk de /system/app registrados"; \
+    else fail "apk de /system/app sin registrar" "$_unreg"; fi
+
+    _ime=$(adb_sh "sqlite3 /data/data/com.android.providers.settings/databases/settings.db \"select value from secure where name='default_input_method';\"")
+    if [[ -n "$_ime" ]] && adb_sh "pm list packages" | grep -qx "package:${_ime%%/*}"; then
+        pass "Teclado predeterminado ($_ime)"
+    else
+        fail "Teclado" "default_input_method='$_ime' sin paquete instalado"
     fi
 
     # UnknownHostException antes de que suba la red es normal; el bug era

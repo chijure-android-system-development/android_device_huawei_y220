@@ -25,6 +25,20 @@ bash device/huawei/y220/tools/blobcheck/blobcheck.sh --stock ~/y220/system.ubifs
 `readelf` en español escribe "Biblioteca compartida"; los scripts fuerzan
 `LC_ALL=C`.
 
+## test_y220 antes y después de flashear
+
+```
+bash device/huawei/y220/tools/test_y220.sh --section zip --zip out/target/product/y220/cm-7-*.zip
+bash device/huawei/y220/tools/test_y220.sh --fast
+```
+
+`--zip` prueba que cada apk/jar del zip sea un zip válido (no hace falta
+el teléfono). En el teléfono, la sección `bugs` falla si un apk de
+`/system/app` no quedó registrado en PackageManager o si no hay teclado
+predeterminado instalado. El 2026-10-21 una build cortada por OOM dejó
+`LatinIME.apk` truncado con fecha nueva; la build siguiente lo empaquetó y
+tras el wipe no hubo teclado. `RomManager.apk` (stub de CM7) se ignora.
+
 ## Arreglado
 
 - Política térmica: sin `thermal_manager` las zonas de `/proc/mtktz` no
