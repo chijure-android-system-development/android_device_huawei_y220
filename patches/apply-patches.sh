@@ -135,3 +135,10 @@ apply frameworks/base frameworks_base_servicemanager_bluetooth.patch
 # SoftwareRenderer recorta el padding de stride 32 que entregan; el
 # LayerBuffer del Y220 ignora hor_stride y mostraba la imagen torcida.
 apply frameworks/base frameworks_base_stagefright_mtk_omx.patch
+
+# Anclaje USB: el gadget android_usb del kernel 3.4 no tiene
+# usb_composite/rndis. netd cambia android0/functions a rndis,adb y luego
+# restaura la lista; Settings enciende RNDIS antes de anclar porque rndis0
+# solo existe mientras la función está activa.
+apply system/netd system_netd_android_usb_rndis.patch
+apply packages/apps/Settings packages_apps_Settings_rndis_on_demand.patch

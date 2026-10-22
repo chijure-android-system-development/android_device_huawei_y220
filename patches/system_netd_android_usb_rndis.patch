@@ -1,0 +1,112 @@
+diff --git a/UsbController.cpp b/UsbController.cpp
+index 2fafb58..2d31f9e 100644
+--- a/UsbController.cpp
++++ b/UsbController.cpp
+@@ -14,9 +14,12 @@
+  * limitations under the License.
+  */
+ 
++#include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#include <unistd.h>
+ 
+ 
+ #include <netinet/in.h>
+@@ -27,6 +30,73 @@
+ 
+ #include "UsbController.h"
+ 
++/*
++ * Kernels with the android_usb gadget (3.x) have no usb_composite/rndis:
++ * RNDIS is a function name in android0/functions, and rndis0 only exists
++ * while it is bound. Switch functions there and put the old list back.
++ */
++#define ANDROID_USB "/sys/class/android_usb/android0/"
++
++static char sSavedFunctions[256];
++
++static int readSys(const char *path, char *buf, int len) {
++    int fd = open(path, O_RDONLY);
++    if (fd < 0)
++        return -1;
++    int n = read(fd, buf, len - 1);
++    close(fd);
++    if (n < 0)
++        return -1;
++    buf[n] = '\0';
++    char *nl = strchr(buf, '\n');
++    if (nl)
++        *nl = '\0';
++    return 0;
++}
++
++static int writeSys(const char *path, const char *value) {
++    int fd = open(path, O_WRONLY);
++    if (fd < 0) {
++        LOGE("Unable to open %s (%s)", path, strerror(errno));
++        return -1;
++    }
++    int n = write(fd, value, strlen(value));
++    close(fd);
++    if (n < 0) {
++        LOGE("Unable to write %s to %s (%s)", value, path, strerror(errno));
++        return -1;
++    }
++    return 0;
++}
++
++static bool hasAndroidUsb() {
++    return access(ANDROID_USB "functions", W_OK) == 0;
++}
++
++static int enableAndroidUsbRNDIS(bool enable) {
++    char cur[256], next[256];
++
++    if (readSys(ANDROID_USB "functions", cur, sizeof(cur)) < 0)
++        return -1;
++    bool started = strstr(cur, "rndis") != NULL;
++    if (enable == started)
++        return 0;
++    if (enable) {
++        strlcpy(sSavedFunctions, cur, sizeof(sSavedFunctions));
++        strlcpy(next, strstr(cur, "adb") ? "rndis,adb" : "rndis", sizeof(next));
++    } else if (sSavedFunctions[0] != '\0') {
++        strlcpy(next, sSavedFunctions, sizeof(next));
++    } else {
++        strlcpy(next, strstr(cur, "adb") ? "mass_storage,adb" : "mass_storage",
++                sizeof(next));
++    }
++    LOGD("android_usb functions %s -> %s", cur, next);
++    if (writeSys(ANDROID_USB "enable", "0") < 0 ||
++            writeSys(ANDROID_USB "functions", next) < 0)
++        return -1;
++    return writeSys(ANDROID_USB "enable", "1");
++}
++
+ 
+ UsbController::UsbController() {
+ }
+@@ -46,6 +116,8 @@ int UsbController::stopRNDIS() {
+ 
+ int UsbController::enableRNDIS(bool enable) {
+     char value[20];
++    if (hasAndroidUsb())
++        return enableAndroidUsbRNDIS(enable);
+ #ifdef USE_HTC_USB_FUNCTION_SWITCH
+     int fd = open("/sys/devices/platform/msm_hsusb/usb_function_switch", O_RDWR);
+     int count = snprintf(value, sizeof(value), "%d\n", (enable ? 4 : 3));
+@@ -60,6 +132,11 @@ int UsbController::enableRNDIS(bool enable) {
+ 
+ bool UsbController::isRNDISStarted() {
+     char value=0;
++    if (hasAndroidUsb()) {
++        char cur[256];
++        return readSys(ANDROID_USB "functions", cur, sizeof(cur)) == 0 &&
++                strstr(cur, "rndis") != NULL;
++    }
+ #ifdef USE_HTC_USB_FUNCTION_SWITCH
+     int fd = open("/sys/devices/platform/msm_hsusb/usb_function_switch", O_RDWR);
+ #else

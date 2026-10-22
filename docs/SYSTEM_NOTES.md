@@ -49,6 +49,8 @@ tras el wipe no hubo teclado. `RomManager.apk` (stub de CM7) se ignora.
   `ifc_set_throttle` del libnetutils de MTK y no se usa.
 - `dalvik.vm.heapsize=24m`: no estaba y Dalvik daba 16m a cada app.
 - Decoders de video MTK: ver `VIDEO_NOTES.md`.
+- Anclaje USB (2026-10-22): kernel `#93` con netfilter, netd y Settings para
+  el gadget `android_usb`; ver la sección "Anclaje USB" del README.
 
 ## No son bugs
 

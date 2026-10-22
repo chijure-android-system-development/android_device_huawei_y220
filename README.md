@@ -3,7 +3,7 @@
 MediaTek MT6572, panel ILI9488 320x480, NAND UBIFS. No es el Y210.
 
 El teléfono corre CM7 instalado desde el zip de este árbol
-(`cm-7-20261021`) con el kernel `#92` y el recovery TWRP 3.1.1-0.1. Algunos
+(`cm-7-20261021`) con el kernel `#93` (boot flasheado aparte el 2026-10-22) y el recovery TWRP 3.1.1-0.1. Algunos
 cambios posteriores se probaron con actualización puntual sobre `/system` y
 quedan documentados abajo.
 
@@ -11,7 +11,7 @@ quedan documentados abajo.
 
 `lunch cyanogen_y220-eng` selecciona el producto. `breakfast y220` elige
 `eng` aunque `timed_build.sh` pida `userdebug`. El `kernel` prebuilt es el
-`#92` (3737016 bytes), con sus módulos en `prebuilt/modules`.
+`#93` (3853664 bytes, netfilter), con sus módulos en `prebuilt/modules`.
 `prebuilt/ramdisk-stock.img` es el ramdisk de boot de stock (612053 bytes,
 gzip cpio, sin cabecera MTK); solo lo usa `pack-bootimg.sh`. El boot del zip
 lleva el ramdisk de CM7 (`init.rc` de este árbol).
@@ -589,6 +589,36 @@ Probado el 2026-10-22: aparece la animación de carga. Pendiente:
 Para depurar: `touch /data/misc/ipod_save_log` hace que `ipod` escriba
 `/data/misc/ipod_log`; en modo carga no hay adb y UBIFS pierde lo que no se
 sincronizó al sacar la batería, así que hay que volcar con `sync`.
+
+## Anclaje USB
+
+Desde el kernel `#93`. El kernel del árbol se compilaba sin netfilter
+(`# CONFIG_NETFILTER is not set` en el kconfig del proyecto), así que no había
+tabla `nat`. El kernel de stock sí la tiene (`ip_tables`, `iptable_nat`,
+`nf_conntrack` y `MASQUERADE`). `#93` usa el netfilter de la config de
+plataforma MT6572. `XT_MATCH_QTAGUID` queda apagado: es de ICS, no compila sin
+IPv6 y GB no lo usa. Como cambia `sk_buff`, todos los módulos se recompilaron
+con `#93`.
+
+El netd de GB (también el de stock) activa RNDIS en
+`/sys/class/usb_composite/rndis/enable`, pero el kernel 3.4 usa el gadget
+`android_usb`:
+
+- `system_netd_android_usb_rndis.patch`: si existe `android0/functions`,
+  netd pone `rndis,adb` y al terminar restaura la lista anterior
+  (`mass_storage,adb`). adb sigue conectado.
+- `packages_apps_Settings_rndis_on_demand.patch`: `rndis0` solo existe
+  mientras la función está activa, y Settings solo dejaba anclar una
+  interfaz que ya existiera. Con el cable conectado, la casilla primero
+  enciende RNDIS y ancla `rndis0` cuando aparece. Si no aparece en 15 s,
+  lo apaga.
+- Overlay: `config_tether_usb_regexs` = `rndis\d`;
+  `config_tether_upstream_regexs` = `wlan\d` y `ccmni\d`.
+
+Probado el 2026-10-22: el PC (Linux, `rndis_host`) recibe 192.168.42.x por
+dnsmasq, navega por `ccmni0` con NAT y resuelve DNS. Al desmarcar vuelve
+`mass_storage,adb`. El ping a internet falla también desde el teléfono: Claro
+filtra ICMP.
 
 ## Pendientes conocidos
 

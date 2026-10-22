@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- USB tethering. The android_usb gadget names the RNDIS link rndis0;
+         netd switches android0/functions to rndis,adb while it is on. -->
+    <string-array name="config_tether_usb_regexs" translatable="false">
+        <item>"rndis\\d"</item>
+    </string-array>
+
+    <!-- WiFi first: when both are up it is the default route. ccmni0 is the
+         MTK modem data link. -->
+    <string-array name="config_tether_upstream_regexs" translatable="false">
+        <item>"wlan\\d"</item>
+        <item>"ccmni\\d"</item>
+    </string-array>
+</resources>
