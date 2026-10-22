@@ -60,6 +60,15 @@ tras el wipe no hubo teclado. `RomManager.apk` (stub de CM7) se ignora.
 - Servicios de stock sin uso en CM7: DMAgent, NvRAMAgent, hald,
   mdlogger, mobile_log_d, agpsd, drmserver.
 - Firmware FM v2–v5: falta, la radio funciona con v1.
+- 3G (2026-10-22): con "Solo WCDMA" el RIL manda `AT+ERAT=1,0`, el módem
+  busca 3G y la red responde `+CREG: 2,3` (registro denegado). El teléfono
+  queda en EDGE con Claro PE en modo automático: es cosa de la red, el plan o
+  las bandas, no de la ROM.
+- Almacenamiento USB (2026-10-22): compartir la SD funciona (lunfile
+  `/sys/devices/platform/usb_mass_storage/lun0/file`, el PC la ve como
+  "File-CD Gadget"). Si el PC la tiene montada, desactivar falla con
+  `Device or resource busy` y la SD queda sin montar en el teléfono hasta
+  expulsarla en el PC; es el comportamiento de GB.
 
 ## Siguen sin cargar (sin uso)
 
