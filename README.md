@@ -2,16 +2,19 @@
 
 MediaTek MT6572, panel ILI9488 320x480, NAND UBIFS. No es el Y210.
 
-El teléfono sigue con el kernel `#57` (`boot-y220-ums4.img`) y el recovery
-TWRP. Nada de este directorio se ha flasheado.
+El teléfono corre CM7 instalado desde el zip de este árbol
+(`cm-7-20261021`) con el kernel `#92` y el recovery TWRP 3.1.1-0.1. Algunos
+cambios posteriores se probaron con actualización puntual sobre `/system` y
+quedan documentados abajo.
 
 ## Qué es este árbol
 
 `lunch cyanogen_y220-eng` selecciona el producto. `breakfast y220` elige
 `eng` aunque `timed_build.sh` pida `userdebug`. El `kernel` prebuilt es el
-zImage de `boot-y220-ums4.img` (`#57`, 3727144 bytes).
-`prebuilt/ramdisk-stock.img` es el ramdisk de boot de esa misma imagen
-(612053 bytes, gzip cpio, sin cabecera MTK). Sigue trayendo `init.charging.rc`.
+`#92` (3737016 bytes), con sus módulos en `prebuilt/modules`.
+`prebuilt/ramdisk-stock.img` es el ramdisk de boot de stock (612053 bytes,
+gzip cpio, sin cabecera MTK); solo lo usa `pack-bootimg.sh`. El boot del zip
+lleva el ramdisk de CM7 (`init.rc` de este árbol).
 
 `pack-bootimg.sh` arma un boot de 6291456 bytes con `mtkbootimg`. No escribe
 el teléfono. El `mkbootimg` de CM7 no agrega las cabeceras MTK `KERNEL` /
@@ -57,35 +60,46 @@ bash device/huawei/y220/patches/revert-patches.sh
 - `system_core_liblog_extra.patch`: el `liblog` compartido hace
   whole-static de `BOARD_LIBLOG_EXTRA_STATIC` (`libxlog`).
   `libpalwlan_mtk.so` resuelve `__xlog_buf_printf` ahí.
-- `libhardware_legacy_wifi_wmt.patch`: si existe `/dev/wmtWifi`, el HAL
-  espera hasta 4 s a que aparezca `wlan0` después de marcar el driver
-  como cargado. El `insmod` de `wlan_mt6582.ko` no crea la interfaz.
-- `external_wpa_supplicant_6_scan_idle.patch`: solo los puntos de
-  llamada. La política está en `libwpa_mtk_wext`.
+- `WIFI_FIRMWARE_LOADER=wmt_wifi_loader`: el servicio del device enciende
+  WMT, espera hasta 4 s a que aparezca `wlan0` y publica `ok` o `failed` al
+  HAL Wi-Fi genérico. El `insmod` de `wlan_mt6582.ko` no crea la interfaz.
+- `external_wpa_supplicant_6_mtk_wext.patch`: puente único con
+  `libwpa_mtk_wext`; la política de scan, filtrado, RSSI y velocidad vive en
+  el device tree.
 - `frameworks_base_wifi_dormant.patch`: un estado DORMANT sin asociación
   no baja `wlan0`.
-- `frameworks_base_bt_mtk_gap.patch`: el enable de Ajustes llama a
-  `libbt_mtk_gap` en vez de `bluetoothd`. Ver la nota de Bluetooth. No
-  prenderlo.
+- `frameworks_base_bt_mtk.patch`: puente único desde el framework a la
+  librería compartida `libbt_mtk_gap` del device tree. Implementa encendido,
+  discovery y pairing sin depender del adaptador BlueZ.
 - `frameworks_base_phonefactory_mediatek.patch` y
   `system_core_property_ccmni.patch`: datos móviles. Ver Radio.
-- `frameworks_base_libutils_ics_compat.patch`: `String8::format`,
-  `String8::formatV`, `Thread::join` y `PropertyMap` (sin `load()`), de
-  ICS. Los piden `camera.default.so` y las `libcam.*` de stock.
+- `frameworks_base_libutils_ics_compat.patch`: agrega únicamente
+  `String8::format`, `String8::formatV` y `Thread::join`, de ICS.
+  `PropertyMap` (sin `load()`) vive en `libutils/PropertyMap.cpp` del device
+  y entra en `libutils.so` mediante `BOARD_LIBUTILS_EXTRA_SRC`. Los piden
+  `camera.default.so` y las `libcam.*` de stock.
 - `external_jpeg_mtk_compat.patch`: `jpeg_compress_struct` lleva al final
   los dos arrays de MTK (`for_huff_opt`, `last_coffs_zero`) y mide 432
   bytes como en stock; sin eso `jpeg_CreateCompress` de `libJpgEncPipe`
   falla por tamaño. Agrega `jpeg_mem_dest` (de libjpeg 8). Toda
   `libjpeg` y sus usuarios (Skia) se recompilan con ese struct.
-- `system_core_libcutils_mtk_compat.patch`: `pmem_alloc`,
-  `pmem_alloc_sync`, `pmem_free` y `pmem_get_phys` sobre
-  `/dev/pmem_multimedia` (implementación propia, no la de MTK), y
-  `dump_backtrace_to_file` que devuelve -1.
-- `frameworks_base_camera_mtk_client.patch`: `Camera::takePicture(int)` y
-  el JNI lo llama con `BOARD_USES_MTK_CAMERA`; mediaserver reserva
-  `BOARD_MTK_CAMERA_SERVICE_SIZE` bytes para el `CameraService` de stock.
-- `frameworks_base_surfaceflinger_yv12.patch`: `LayerBuffer` convierte
-  YV12 a RGB565 antes de subir la textura. Ver Cámara.
+- `system_core_libcutils_mtk_compat.patch`: permite agregar fuentes mediante
+  `BOARD_LIBCUTILS_EXTRA_SRC`. Las implementaciones `pmem_*` sobre
+  `/dev/pmem_multimedia` y el stub `dump_backtrace_to_file` viven en
+  `libcutils/` dentro del device tree.
+  El 2026-10-13 se instaló este `libcutils.so`: Android completó el arranque,
+  quedaron activos system_server, mediaserver, RIL, Wi-Fi y mtkbt; la cámara
+  tomó `IMG_20261013_133755.jpg`, Wi-Fi siguió asociado y no hubo tombstones
+  nuevos. El anterior está en
+  `/data/local/tmp/libcutils.so.before-device-sources`.
+- `frameworks_base_camera_mtk_client.patch`: deja un hook JNI pequeño. El
+  adaptador `libcamera_compat/camera_compat.cpp` resuelve el
+  `Camera::takePicture(int)` del blob sin cambiar la clase `Camera` de CM7.
+  El ejecutable `mediaserver` propio del device reserva el tamaño ABI del
+  `CameraService` de stock.
+- `frameworks_base_surfaceflinger_yv12.patch`: `LayerBuffer` detecta YV12 y
+  llama al conversor RGB565 de `surfaceflinger/Yv12Converter.cpp` antes de
+  subir la textura. La conversión y su buffer viven en el device tree.
 
 ## Compilación
 
@@ -112,6 +126,20 @@ El zip que sí empaqueta el script de UBIFS y el boot con cabecera MTK es
 `88168858` seguida del zImage (`0000a0e1`). `system.img` suelto sigue
 siendo yaffs. `recovery.img` es el de CM7, no TWRP, y el script no lo
 escribe. Ninguno se flasheó. El rollback sigue siendo el backup de TWRP.
+
+Después de mover las compatibilidades de cámara, `libutils` y `libcutils`
+al device tree, un `make bacon` completo terminó el 2026-10-13. Generó
+`out/target/product/y220/cm-7-20261013-UNOFFICIAL-y220.zip`, 96 MB, MD5
+`83ef8df718dcaae1e7c204d4795822de`. Se comprobó que el ZIP contiene el
+mediaserver propio, `libbt_mtk_gap.so`, las bibliotecas reconstruidas y el
+loader Wi-Fi; su updater conserva UBIFS y no instala el recovery. Este ZIP
+se instaló completo desde TWRP 3.1.1-0.1 el 2026-10-13. El updater terminó
+con `RC=0`, escribió `boot`, Android completó el arranque y `/system` quedó
+montado como UBIFS de solo lectura. Se verificaron los hashes de mediaserver,
+libcutils, libutils, libstagefright, libsurfaceflinger y libbt_mtk_gap contra
+el contenido del ZIP. system_server, mediaserver, RIL, wpa_supplicant y mtkbt
+permanecieron activos; Wi-Fi se asoció a DEPA2 a 65 Mb/s, la app Cámara abrió
+y no aparecieron errores fatales ni tombstones nuevos.
 
 ## System de stock completo
 
@@ -449,8 +477,8 @@ las `libcam.*`, `libcamera_client.so` y `libcameraservice.so` de stock.
 
 - mediaserver: el `CameraService` de stock mide 0x68 bytes y el header de
   CM7 dice 0x48. Con `new CameraService()` de CM7 se pisa el heap y
-  mediaserver muere (SIGBUS en `writeStrongBinder`). Ver
-  `frameworks_base_camera_mtk_client.patch`.
+  mediaserver muere (SIGBUS en `writeStrongBinder`). El entry point propio
+  vive en `device/huawei/y220/mediaserver`.
 - Símbolos de ICS que faltaban: ver los parches de `libutils`, `libjpeg`
   y `libcutils`.
 - Permisos (`ueventd.mt6572.rc`): `/dev/M4U_device` 0444, nodos
@@ -464,16 +492,31 @@ las `libcam.*`, `libcamera_client.so` y `libcameraservice.so` de stock.
   (`registerPreviewBuffers`/`postBuffer`) sobre la `SurfaceView` de push
   buffers. El buffer viene en YV12; `GGLSurface.format` es de 1 byte y
   YV12 llegaba como 89, que `TextureManager` no conoce: preview blanca.
-  `LayerBuffer` ahora lo convierte a RGB565. Con `SURFACE_TYPE_NORMAL`
-  falla `registerBuffers` (-38), así que la app de Cámara no se toca.
+  El hook de `LayerBuffer` llama al conversor RGB565 del device tree. Con
+  `SURFACE_TYPE_NORMAL` falla `registerBuffers` (-38), así que la app de
+  Cámara no se toca.
+
+El 2026-10-13 se instaló puntualmente el `libsurfaceflinger.so` que compila
+ese conversor. Después del reinicio, la cámara negoció YV12 480x368, mostró
+preview real en el framebuffer, tomó `IMG_20261013_131308.jpg` y sobrevivió
+tres ciclos de cerrar/abrir. `mediaserver` conservó el PID 212 y no hubo
+señales fatales ni tombstones nuevos. La biblioteca anterior quedó en
+`/data/local/tmp/libsurfaceflinger.so.before-yv12-device`.
 
 ## Video
 
 Graba (cámara de video de CM7, 3gp). El HAL de MTK manda los cuadros como
 `yuv420i-yyuvyy-3plane`, que es I420; `CameraSource` de CM7 no conocía el
 nombre y un `CHECK` abortaba mediaserver (se caían audio, cámara y
-reproductor). `frameworks_base_stagefright_mtk_i420.patch` lo mapea a
-`OMX_COLOR_FormatYUV420Planar` y codifica el encoder por software.
+reproductor). El hook de `frameworks_base_stagefright_mtk_i420.patch`
+delega el nombre a `stagefright/CameraCompat.cpp`, que lo mapea a
+`OMX_COLOR_FormatYUV420Planar`; luego codifica el encoder por software.
+
+El 2026-10-13 se instaló puntualmente el `libstagefright.so` con este hook.
+Grabó `VID_20261013_132009.3gp`: 23.752 s, 482251 bytes, vídeo H.263
+352x288 y audio AMR-NB. `mediaserver` mantuvo el PID 212, no apareció el
+`CHECK` de formato y no hubo tombstones nuevos. La biblioteca anterior
+quedó en `/data/local/tmp/libstagefright.so.before-camera-compat`.
 
 La reproducción usa los decoders de hardware de MTK
 (`OMX.MTK.VIDEO.DECODER.AVC`, `MPEG4` y `H263`):
@@ -517,8 +560,9 @@ sensores solo hay acelerómetro, como en stock. Detalle:
 
 ## Pendientes conocidos
 
-- Bluetooth: enciende la radio y **busca dispositivos**; falta emparejar y
-  los perfiles (audio, archivos). La pila es `mtkbt` (MTK, sobre STP), no
+- Bluetooth: enciende, busca, empareja en los dos sentidos y envía
+  archivos (ver `docs/BLUETOOTH_NOTES.md`); faltan recibir archivos, A2DP y
+  manos libres. La pila es `mtkbt` (MTK, sobre STP), no
   BlueZ: no hay `bluetoothd` y el kernel no tiene sockets RFCOMM/SCO de
   BlueZ.
   - Para que `mtkbt` encienda el chip: `persist.mtk.wcn.combo.chipid=0x6572`,
@@ -528,10 +572,9 @@ sensores solo hay acelerómetro, como en stock. Detalle:
     pedidos en `bt.app.gap` (POWERON_CNF 145), indicaciones en `bt.ext.adp`:
     DISCOVERY_RESULT_IND 147, UPDATE_IND 148 (nombre), DISCOVERY_CNF 149.
     La numeración no coincide con los headers MTK de JB en GitHub.
-  - `libbt_mtk_gap` arma DISCOVERY_REQ (103) y lee `bt.ext.adp`;
-    `frameworks_base_bt_mtk_discovery.patch` hace que `startDiscovery` lo use
-    y un hilo en `BluetoothEventLoop` llame a `onDeviceFound` y a
-    `onPropertyChanged(Discovering)`, así Ajustes recibe `ACTION_FOUND`.
+  - `libbt_mtk_gap` arma los pedidos GAP y lee `bt.ext.adp`;
+    `frameworks_base_bt_mtk.patch` conecta sus eventos con
+    `BluetoothEventLoop`, así Ajustes recibe discovery y bonding.
 - Con BT encendido, `BluetoothHandsfree` reintentaba el accept de SCO sin
   pausa: `com.android.phone` al 43 % y ~640 líneas de log por segundo.
   `packages_apps_Phone_sco_retry.patch` lo reintenta a los 30 s.

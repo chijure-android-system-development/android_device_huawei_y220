@@ -31,11 +31,9 @@ revert external/jpeg external_jpeg_mtk_compat.patch
 revert frameworks/base frameworks_base_libutils_ics_compat.patch
 revert system/core system_core_property_ccmni.patch
 revert frameworks/base frameworks_base_phonefactory_mediatek.patch
-revert external/wpa_supplicant_6 external_wpa_supplicant_6_rssi.patch
-revert external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
+revert external/wpa_supplicant_6 external_wpa_supplicant_6_mtk_wext.patch
 revert frameworks/base frameworks_base_bt_mtk.patch
 revert frameworks/base frameworks_base_wifi_dormant.patch
-revert hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch
 revert system/core system_core_liblog_extra.patch
 revert frameworks/base frameworks_base_libutils_tracer.patch
 revert frameworks/base frameworks_base_egl_bgra.patch

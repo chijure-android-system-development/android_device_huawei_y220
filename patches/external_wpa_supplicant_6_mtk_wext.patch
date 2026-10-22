@@ -140,7 +140,7 @@ index c4da038..6afec1f 100644
  		return;
  	}
 diff --git a/wpa_supplicant/src/drivers/driver_wext.c b/wpa_supplicant/src/drivers/driver_wext.c
-index d2ef4e7..506134c 100644
+index d2ef4e7..81c290c 100644
 --- a/wpa_supplicant/src/drivers/driver_wext.c
 +++ b/wpa_supplicant/src/drivers/driver_wext.c
 @@ -34,6 +34,9 @@
@@ -153,7 +153,22 @@ index d2ef4e7..506134c 100644
  
  
  static int wpa_driver_wext_flush_pmkid(void *priv);
-@@ -2556,6 +2559,11 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
+@@ -2530,6 +2533,14 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
+ 		return -1;
+ 	}
+ 
++#ifdef CONFIG_WPA_PRIVATE_LIB
++	{
++		int n = wpa_private_driver_reply(drv->ifname, cmd, buf, buf_len);
++		if (n >= 0)
++			return n;
++	}
++#endif
++
+ 	if (os_strcasecmp(cmd, "RSSI-APPROX") == 0) {
+ 		os_strncpy(cmd, "RSSI", MAX_DRV_CMD_SIZE);
+ 	} else if( os_strncasecmp(cmd, "SCAN-CHANNELS", 13) == 0 ) {
+@@ -2556,6 +2567,11 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
  	iwr.u.data.pointer = buf;
  	iwr.u.data.length = buf_len;
  
@@ -165,7 +180,7 @@ index d2ef4e7..506134c 100644
  	ret = ioctl(drv->ioctl_sock, SIOCSIWPRIV, &iwr);
  
  	if (ret < 0) {
-@@ -2577,6 +2585,9 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
+@@ -2577,6 +2593,9 @@ static int wpa_driver_priv_driver_cmd( void *priv, char *cmd, char *buf, size_t
  		} else if (os_strcasecmp(cmd, "START") == 0) {
  			drv->driver_is_started = TRUE;
  			/* os_sleep(0, WPA_DRIVER_WEXT_WAIT_US); */

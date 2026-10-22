@@ -58,9 +58,6 @@ apply frameworks/base frameworks_base_libutils_tracer.patch
 # liblog — el .so compartido absorbe la estática del device tree (libxlog).
 apply system/core system_core_liblog_extra.patch
 
-# Wi-Fi HAL — espera a wlan0 cuando existe /dev/wmtWifi.
-apply hardware/libhardware_legacy libhardware_legacy_wifi_wmt.patch
-
 # Settings scan: DORMANT sin asociación no debe bajar wlan0.
 apply frameworks/base frameworks_base_wifi_dormant.patch
 
@@ -68,12 +65,9 @@ apply frameworks/base frameworks_base_wifi_dormant.patch
 # pairing y guardas para no llamar D-Bus sin un adaptador BlueZ.
 apply frameworks/base frameworks_base_bt_mtk.patch
 
-# wpa_supplicant: llamadas a libwpa_mtk_wext. La política está en el device tree.
-apply external/wpa_supplicant_6 external_wpa_supplicant_6_scan_idle.patch
-
-# RSSI y LINKSPEED: libwpa_mtk_wext los responde con SIOCGIWSTATS/SIOCGIWRATE.
-# Antes wpa_supplicant devolvía el texto del comando y el ícono quedaba en 1 barra.
-apply external/wpa_supplicant_6 external_wpa_supplicant_6_rssi.patch
+# Puente único de wpa_supplicant a libwpa_mtk_wext. La política de scan,
+# filtrado, RSSI y LINKSPEED vive en el device tree.
+apply external/wpa_supplicant_6 external_wpa_supplicant_6_mtk_wext.patch
 
 # PhoneFactory: ro.telephony.ril_class=mediatek carga MediaTekRIL del device tree.
 apply frameworks/base frameworks_base_phonefactory_mediatek.patch
@@ -82,15 +76,16 @@ apply frameworks/base frameworks_base_phonefactory_mediatek.patch
 apply system/core system_core_property_ccmni.patch
 
 # Cámara MTK de stock (camera.default.so + libcam.*, libcamera_client y
-# libcameraservice de stock). Funciones de ICS que piden esos blobs:
-# String8::format/formatV, Thread::join, PropertyMap.
+# libcameraservice de stock). El parche agrega String8::format/formatV y
+# Thread::join. PropertyMap se compila desde el device tree mediante
+# BOARD_LIBUTILS_EXTRA_SRC.
 apply frameworks/base frameworks_base_libutils_ics_compat.patch
 
 # libjpeg: jpeg_compress_struct con los dos arrays de MTK al final (432 bytes)
 # y jpeg_mem_dest, que usan libJpgEncPipe, camshot y camadapter.
 apply external/jpeg external_jpeg_mtk_compat.patch
 
-# libcutils: pmem_* (libdpframework) y dump_backtrace_to_file (libaed).
+# libcutils: compilar los símbolos MTK implementados en el device tree.
 apply system/core system_core_libcutils_mtk_compat.patch
 
 # JNI llama al takePicture(int) del cliente de stock y mediaserver reserva el
@@ -98,7 +93,7 @@ apply system/core system_core_libcutils_mtk_compat.patch
 apply frameworks/base frameworks_base_camera_mtk_client.patch
 
 # LayerBuffer: la preview llega en YV12 por registerBuffers/postBuffer;
-# convertirla a RGB565 antes de subir la textura.
+# delegar al conversor RGB565 del device tree antes de subir la textura.
 apply frameworks/base frameworks_base_surfaceflinger_yv12.patch
 
 # LayerBuffer: el CameraClient de stock registra un heap nuevo de preview
@@ -111,8 +106,8 @@ apply frameworks/base frameworks_base_surfaceflinger_reregister.patch
 # Bluez en el kernel fallaba al instante y com.android.phone giraba al 43%.
 apply packages/apps/Phone packages_apps_Phone_sco_retry.patch
 
-# CameraSource: el HAL de MTK manda video en "yuv420i-yyuvyy-3plane" (I420).
-# Sin esto CHECK aborta mediaserver al grabar video.
+# CameraSource: delegar los nombres privados del HAL al adaptador Stagefright
+# del device tree. Sin el mapeo I420, CHECK aborta mediaserver al grabar.
 apply frameworks/base frameworks_base_stagefright_mtk_i420.patch
 
 # Bluetooth sin red Bluez: startPan/stopPan fallan en netd. La excepción

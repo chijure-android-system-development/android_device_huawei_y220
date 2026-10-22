@@ -1,40 +1,24 @@
---- a/include/camera/Camera.h
-+++ b/include/camera/Camera.h
-@@ -237,6 +237,10 @@
-             // take a picture - picture returned from callback
-             status_t    takePicture();
- 
-+            // ICS signature. MediaTek's stock libcamera_client only has
-+            // this one; here msgType is ignored.
-+            status_t    takePicture(int msgType);
-+
-             // set preview/capture parameters - key/value pairs
-             status_t    setParameters(const String8& params);
- 
---- a/libs/camera/Camera.cpp
-+++ b/libs/camera/Camera.cpp
-@@ -306,6 +306,11 @@
-     return c->takePicture();
- }
- 
-+status_t Camera::takePicture(int msgType)
-+{
-+    return takePicture();
-+}
-+
- // set preview/capture parameters - key/value pairs
- status_t Camera::setParameters(const String8& params)
- {
 --- a/core/jni/android_hardware_Camera.cpp
 +++ b/core/jni/android_hardware_Camera.cpp
-@@ -487,7 +487,14 @@
+@@ -27,6 +27,9 @@
+ 
+ #include <surfaceflinger/Surface.h>
+ #include <camera/Camera.h>
++#ifdef MTK_CAMERA_CLIENT
++extern "C" int y220_camera_take_picture(void *camera, int msg_type);
++#endif
+ #include <binder/IMemory.h>
+ 
+ using namespace android;
+@@ -487,7 +490,15 @@
      sp<Camera> camera = get_native_camera(env, thiz, &context);
      if (camera == 0) return;
  
 -    if (camera->takePicture() != NO_ERROR) {
 +#ifdef MTK_CAMERA_CLIENT
 +    // The stock MediaTek libcamera_client only exports takePicture(int).
-+    status_t err = camera->takePicture(CAMERA_MSG_SHUTTER | CAMERA_MSG_POSTVIEW_FRAME |
++    status_t err = y220_camera_take_picture(camera.get(),
++            CAMERA_MSG_SHUTTER | CAMERA_MSG_POSTVIEW_FRAME |
 +            CAMERA_MSG_RAW_IMAGE | CAMERA_MSG_COMPRESSED_IMAGE);
 +#else
 +    status_t err = camera->takePicture();
@@ -45,53 +29,16 @@
      }
 --- a/core/jni/Android.mk
 +++ b/core/jni/Android.mk
-@@ -144,6 +144,10 @@
+@@ -142,8 +142,11 @@
+ 	android_backup_FileBackupHelperBase.cpp \
+ 	android_backup_BackupHelperDispatcher.cpp \
  	android_content_res_ObbScanner.cpp \
-     android_content_res_Configuration.cpp
+-    android_content_res_Configuration.cpp
++    android_content_res_Configuration.cpp \
++    $(BOARD_CAMERA_CLIENT_SRC)
  
-+ifeq ($(BOARD_USES_MTK_CAMERA),true)
-+    LOCAL_CFLAGS += -DMTK_CAMERA_CLIENT
-+endif
++LOCAL_CFLAGS += $(BOARD_CAMERA_CLIENT_CFLAGS)
 +
  ifeq ($(BOARD_HAVE_FM_RADIO),true)
      ## There's a difference. BOARD_HAVE_FM_RADIO enabled the runtime
      ## without modifying the audiosystem (which HAVE_FM_RADIO does)
---- a/media/mediaserver/main_mediaserver.cpp
-+++ b/media/mediaserver/main_mediaserver.cpp
-@@ -19,6 +19,7 @@
- #include <sys/types.h>
- #include <unistd.h>
- #include <grp.h>
-+#include <new>
- 
- #include <binder/IPCThreadState.h>
- #include <binder/ProcessState.h>
-@@ -40,7 +41,15 @@
-     LOGI("ServiceManager: %p", sm.get());
-     AudioFlinger::instantiate();
-     MediaPlayerService::instantiate();
-+#ifdef MTK_CAMERA_SERVICE_SIZE
-+    // The board ships a stock libcameraservice.so whose CameraService is
-+    // bigger than this header says. Allocate the stock size; the stock
-+    // constructor fills it.
-+    sm->addService(String16(CameraService::getServiceName()),
-+            new (operator new(MTK_CAMERA_SERVICE_SIZE)) CameraService());
-+#else
-     CameraService::instantiate();
-+#endif
-     AudioPolicyService::instantiate();
-     ProcessState::self()->startThreadPool();
-     IPCThreadState::self()->joinThreadPool();
---- a/media/mediaserver/Android.mk
-+++ b/media/mediaserver/Android.mk
-@@ -19,6 +19,10 @@
-     $(base)/services/camera/libcameraservice \
-     $(base)/media/libmediaplayerservice
- 
-+ifneq ($(BOARD_MTK_CAMERA_SERVICE_SIZE),)
-+LOCAL_CFLAGS += -DMTK_CAMERA_SERVICE_SIZE=$(BOARD_MTK_CAMERA_SERVICE_SIZE)
-+endif
-+
- LOCAL_MODULE:= mediaserver
- 
- include $(BUILD_EXECUTABLE)

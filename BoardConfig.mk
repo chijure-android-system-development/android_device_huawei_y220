@@ -10,6 +10,18 @@ BOARD_MTK_CAMERA_SERVICE_SIZE := 104
 # The stock CameraClient registers a new preview heap after takePicture
 # without unregistering the old one; without this the preview drifts.
 BOARD_SURFACEFLINGER_REREGISTER_BUFFERS := true
+BOARD_CAMERA_CLIENT_CFLAGS := -DMTK_CAMERA_CLIENT
+BOARD_CAMERA_CLIENT_SRC := ../../../../device/huawei/y220/libcamera_compat/camera_compat.cpp
+TARGET_PROVIDES_MEDIASERVER := true
+
+# The stock camera posts YV12 buffers through the old push-buffer API.
+# SurfaceFlinger's small hook calls this device-owned RGB565 converter.
+BOARD_SURFACEFLINGER_EXTRA_SRC := \
+    ../../../../device/huawei/y220/surfaceflinger/Yv12Converter.cpp
+
+# Translate the stock camera HAL's private video format name to I420.
+BOARD_STAGEFRIGHT_CAMERA_COMPAT_SRC := \
+    ../../../../device/huawei/y220/stagefright/CameraCompat.cpp
 
 TARGET_NO_BOOTLOADER := true
 TARGET_NO_RADIOIMAGE := true
@@ -64,8 +76,16 @@ BOARD_BLUETOOTH_MTK_INCLUDES := device/huawei/y220/libbt_mtk_gap
 # device/huawei/y220/libxlog and is pulled into the shared liblog only.
 BOARD_LIBLOG_EXTRA_STATIC := libxlog
 
-# libMali.so needs android::Tracer from libutils. Stock has it; CM7 does not.
-BOARD_LIBUTILS_EXTRA_SRC := ../../../../device/huawei/y220/libutils/Tracer.cpp
+# Stock blobs need android::Tracer and android::PropertyMap from libutils.
+# CM7 does not provide them, so their implementations live in the device tree.
+BOARD_LIBUTILS_EXTRA_SRC := \
+    ../../../../device/huawei/y220/libutils/Tracer.cpp \
+    ../../../../device/huawei/y220/libutils/PropertyMap.cpp
+
+# Compatibility symbols required from libcutils.so by MTK camera blobs.
+BOARD_LIBCUTILS_EXTRA_SRC := \
+    ../../../device/huawei/y220/libcutils/pmem.c \
+    ../../../device/huawei/y220/libcutils/debugger.c
 
 # Gingerbread audioflinger links libaudio. The MSM7k HAL is not built for
 # this platform. ALSA has no card here (CONFIG_SOUND is off). Playback is
@@ -86,6 +106,9 @@ BOARD_WPA_SUPPLICANT_PRIVATE_INCLUDES := device/huawei/y220/libwpa_mtk_wext
 WIFI_DRIVER_MODULE_PATH := /system/lib/modules/wlan_mt6582.ko
 WIFI_DRIVER_MODULE_NAME := wlan_mt6582
 WIFI_DRIVER_MODULE_ARG := ""
+# hardware/libhardware_legacy already waits for this oneshot loader to set
+# wlan.driver.status. The device service powers WMT and waits for wlan0.
+WIFI_FIRMWARE_LOADER := wmt_wifi_loader
 
 # MTK OMX video decoders (OMX.MTK.VIDEO.DECODER.*) in OMXCodec, and the
 # SoftwareRenderer crop of their 32-pixel stride padding.

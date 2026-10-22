@@ -1,14 +1,44 @@
+diff --git a/media/libstagefright/Android.mk b/media/libstagefright/Android.mk
+index e1ef7667928..c474368d852 100644
+--- a/media/libstagefright/Android.mk
++++ b/media/libstagefright/Android.mk
+@@ -46,6 +46,11 @@ LOCAL_SRC_FILES:=                         \
+         avc_utils.cpp                     \
+         string.cpp
+ 
++ifneq ($(BOARD_STAGEFRIGHT_CAMERA_COMPAT_SRC),)
++LOCAL_SRC_FILES += $(BOARD_STAGEFRIGHT_CAMERA_COMPAT_SRC)
++LOCAL_CFLAGS += -DBOARD_STAGEFRIGHT_CAMERA_COMPAT
++endif
++
+ ifeq ($(OMAP_ENHANCEMENT),true)
+ LOCAL_SRC_FILES += \
+     ASFExtractor.cpp
+diff --git a/media/libstagefright/CameraSource.cpp b/media/libstagefright/CameraSource.cpp
+index 8eb665e7edd..9cdcaada5f8 100644
 --- a/media/libstagefright/CameraSource.cpp
 +++ b/media/libstagefright/CameraSource.cpp
-@@ -122,6 +122,12 @@
+@@ -37,6 +37,11 @@
+ 
+ namespace android {
+ 
++#ifdef BOARD_STAGEFRIGHT_CAMERA_COMPAT
++extern "C" int32_t board_stagefright_camera_color_format(
++        const char* colorFormat);
++#endif
++
+ struct CameraSourceListener : public CameraListener {
+     CameraSourceListener(const sp<CameraSource> &source);
+ 
+@@ -122,6 +127,12 @@ static int32_t getColorFormat(const char* colorFormat) {
         return OMX_COLOR_Format16bitRGB565;
      }
  
-+    // MediaTek camera HALs send video frames as I420 (Y, U, V planes) and
-+    // call it this.
-+    if (!strcmp(colorFormat, "yuv420i-yyuvyy-3plane")) {
-+       return OMX_COLOR_FormatYUV420Planar;
-+    }
++#ifdef BOARD_STAGEFRIGHT_CAMERA_COMPAT
++    int32_t boardFormat = board_stagefright_camera_color_format(colorFormat);
++    if (boardFormat >= 0)
++        return boardFormat;
++#endif
 +
      LOGE("Uknown color format (%s), please add it to "
           "CameraSource::getColorFormat", colorFormat);

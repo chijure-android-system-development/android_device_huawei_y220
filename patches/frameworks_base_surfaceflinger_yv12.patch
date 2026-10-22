@@ -1,88 +1,76 @@
---- a/services/surfaceflinger/LayerBuffer.h
-+++ b/services/surfaceflinger/LayerBuffer.h
-@@ -154,6 +154,9 @@
-         mutable Texture                 mTexture;
-         mutable NativeBuffer            mTempBuffer;
-         mutable TextureManager          mTextureManager;
-+        // RGB565 copy of a YV12 buffer for the GL fallback.
-+        mutable uint16_t*               mRgbBuffer;
-+        mutable size_t                  mRgbSize;
-     };
-     
-     class OverlaySource : public Source {
+diff --git a/services/surfaceflinger/Android.mk b/services/surfaceflinger/Android.mk
+index 853180d8ed1..6d15b9dbb79 100644
+--- a/services/surfaceflinger/Android.mk
++++ b/services/surfaceflinger/Android.mk
+@@ -17,6 +17,8 @@ LOCAL_SRC_FILES:= \
+     TextureManager.cpp \
+     Transform.cpp
+ 
++LOCAL_SRC_FILES += $(BOARD_SURFACEFLINGER_EXTRA_SRC)
++
+ LOCAL_CFLAGS:= -DLOG_TAG=\"SurfaceFlinger\"
+ LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
+ 
+diff --git a/services/surfaceflinger/LayerBuffer.cpp b/services/surfaceflinger/LayerBuffer.cpp
+index 7a1404df5c3..6035aeb7d77 100644
 --- a/services/surfaceflinger/LayerBuffer.cpp
 +++ b/services/surfaceflinger/LayerBuffer.cpp
-@@ -395,7 +395,8 @@
+@@ -37,6 +37,11 @@
+ 
+ namespace android {
+ 
++extern "C" bool y220_yv12_to_rgb565(void** converter, const uint8_t* src,
++        int stride, int vstride, int width, int height,
++        const uint16_t** output);
++extern "C" void y220_yv12_converter_destroy(void* converter);
++
+ // ---------------------------------------------------------------------------
+ 
+ gralloc_module_t const* LayerBuffer::sGrallocModule = 0;
+@@ -395,7 +400,7 @@ int LayerBuffer::Source::requestOverlayClone(bool enable) {
  
  LayerBuffer::BufferSource::BufferSource(LayerBuffer& layer,
          const ISurface::BufferHeap& buffers)
 -    : Source(layer), mStatus(NO_ERROR), mBufferSize(0)
-+    : Source(layer), mStatus(NO_ERROR), mBufferSize(0),
-+      mRgbBuffer(0), mRgbSize(0)
++    : Source(layer), mStatus(NO_ERROR), mBufferSize(0), mYv12Converter(0)
  {
      if (buffers.heap == NULL) {
          // this is allowed, but in this case, it is illegal to receive
-@@ -460,6 +461,40 @@
+@@ -460,6 +465,7 @@ LayerBuffer::BufferSource::~BufferSource()
          EGLDisplay dpy(getFlinger()->graphicPlane(0).getEGLDisplay());
          eglDestroyImageKHR(dpy, mTexture.image);
      }
-+    free(mRgbBuffer);
-+}
-+
-+/*
-+ * YV12 (Y, then Cr, then Cb; chroma stride is half the luma stride rounded
-+ * up to 16) to RGB565, BT.601. GGLSurface keeps only the low byte of the
-+ * format, so the GL path cannot take YV12 itself; MediaTek camera services
-+ * post their preview this way.
-+ */
-+static void yv12ToRgb565(const uint8_t* src, int stride, int vstride,
-+        int w, int h, uint16_t* dst)
-+{
-+    const int cstride = ((stride / 2) + 15) & ~15;
-+    const uint8_t* yp = src;
-+    const uint8_t* vp = src + stride * vstride;
-+    const uint8_t* up = vp + cstride * (vstride / 2);
-+
-+    for (int j = 0; j < h; j++) {
-+        const uint8_t* y = yp + j * stride;
-+        const uint8_t* v = vp + (j / 2) * cstride;
-+        const uint8_t* u = up + (j / 2) * cstride;
-+        for (int i = 0; i < w; i++) {
-+            int c = 298 * (y[i] - 16);
-+            int d = u[i / 2] - 128;
-+            int e = v[i / 2] - 128;
-+            int r = (c + 409 * e + 128) >> 8;
-+            int g = (c - 100 * d - 208 * e + 128) >> 8;
-+            int b = (c + 516 * d + 128) >> 8;
-+            r = r < 0 ? 0 : (r > 255 ? 255 : r);
-+            g = g < 0 ? 0 : (g > 255 ? 255 : g);
-+            b = b < 0 ? 0 : (b > 255 ? 255 : b);
-+            *dst++ = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-+        }
-+    }
++    y220_yv12_converter_destroy(mYv12Converter);
  }
  
  void LayerBuffer::BufferSource::postBuffer(ssize_t offset)
-@@ -561,6 +596,22 @@
+@@ -561,6 +567,17 @@ void LayerBuffer::BufferSource::onDraw(const Region& clip) const
          t.vstride= src.img.h;
          t.format = src.img.format;
          t.data = (GGLubyte*)src.img.base;
 +        if (src.img.format == HAL_PIXEL_FORMAT_YV12) {
-+            const size_t size = t.width * t.height;
-+            if (mRgbSize < size) {
-+                free(mRgbBuffer);
-+                mRgbBuffer = (uint16_t*)malloc(size * sizeof(uint16_t));
-+                mRgbSize = mRgbBuffer ? size : 0;
-+            }
-+            if (mRgbBuffer) {
-+                yv12ToRgb565((const uint8_t*)src.img.base, src.img.w, src.img.h,
-+                        t.width, t.height, mRgbBuffer);
++            const uint16_t* rgb;
++            if (y220_yv12_to_rgb565(&mYv12Converter,
++                    (const uint8_t*)src.img.base, src.img.w, src.img.h,
++                    t.width, t.height, &rgb)) {
 +                t.format = HAL_PIXEL_FORMAT_RGB_565;
 +                t.stride = t.width;
 +                t.vstride = t.height;
-+                t.data = (GGLubyte*)mRgbBuffer;
++                t.data = (GGLubyte*)rgb;
 +            }
 +        }
          const Region dirty(Rect(t.width, t.height));
          mTextureManager.loadTexture(&mTexture, dirty, t);
      }
+diff --git a/services/surfaceflinger/LayerBuffer.h b/services/surfaceflinger/LayerBuffer.h
+index 5dafa00688e..6e6d9265007 100644
+--- a/services/surfaceflinger/LayerBuffer.h
++++ b/services/surfaceflinger/LayerBuffer.h
+@@ -154,6 +154,7 @@ private:
+         mutable Texture                 mTexture;
+         mutable NativeBuffer            mTempBuffer;
+         mutable TextureManager          mTextureManager;
++        mutable void*                   mYv12Converter;
+     };
+     
+     class OverlaySource : public Source {

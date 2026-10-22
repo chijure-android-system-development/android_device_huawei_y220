@@ -49,6 +49,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PACKAGES += \
     lights.y220 \
     libaudio \
+    libaudiopolicy \
+    mediaserver \
     libbt_mtk_gap \
     libbt_mtk_opp \
     libmtk_shim \
