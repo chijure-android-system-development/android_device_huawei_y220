@@ -558,6 +558,38 @@ El `gps.default.so` de stock es un stub vacío: el Y220-U05 no tiene GPS. De
 sensores solo hay acelerómetro, como en stock. Detalle:
 [`docs/SYSTEM_NOTES.md`](docs/SYSTEM_NOTES.md).
 
+## Carga con el teléfono apagado
+
+Con el teléfono apagado y el cargador conectado, el LK arranca la partición
+boot con `boot_mode` 8 (`/sys/class/BOOT/BOOT/boot/boot_mode`, ver el README
+del kernel). El `init` de stock carga entonces `init.charging.rc` y corre
+`ipod`. El de CM7 no sabía de esto: arrancaba el `init.rc` normal y se quedaba
+en el logo de Movistar. No es cosa de TWRP: el recovery no interviene.
+
+`system_core_init_charging.patch` (`BOARD_CHARGING_MODE_FILE`): si el modo es
+8 o 9, `init` dispara `charger` en vez de `early-boot`/`boot` y deja
+`ro.bootmode=charger`. `init.rc` arranca ahí el `ipod` de stock, que dibuja
+la batería desde la partición logo; módem, `init.d` y Android no arrancan.
+El servicio `shutdown` (`reboot -p`) es el que `ipod` pide al desconectar el
+cargador; stock usa un `/system/bin/shutdown` que CM7 no trae.
+
+Para entrar: apagar, desconectar, esperar la pantalla negra y conectar. Si
+se apaga con el cargador ya conectado, el LK reinicia en modo normal
+(`boot_reason=4`) y arranca Android.
+
+Probado el 2026-10-22: aparece la animación de carga. Pendiente:
+
+- Mantener el botón de encendido no arranca Android. `ipod` encuentra el
+  teclado (`mtk-kpd` coincide con `kpd`), pero a los ~3 s suelta su wakelock
+  y los volcados de diagnóstico se cortan ahí: lo probable es que el sistema
+  se suspenda y la pulsación no llegue a `ipod` (stock y su kernel no se
+  compararon en este punto). Hay que salir sacando la batería.
+- Desconectar el cargador (servicio `shutdown`) no se probó.
+
+Para depurar: `touch /data/misc/ipod_save_log` hace que `ipod` escriba
+`/data/misc/ipod_log`; en modo carga no hay adb y UBIFS pierde lo que no se
+sincronizó al sacar la batería, así que hay que volcar con `sync`.
+
 ## Pendientes conocidos
 
 - Bluetooth: enciende, busca, empareja en los dos sentidos y envía

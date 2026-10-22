@@ -40,6 +40,7 @@ revert frameworks/base frameworks_base_egl_bgra.patch
 revert hardware/libhardware libhardware_gralloc_bgra.patch
 revert hardware/alsa_sound alsa_sound_null_mixer.patch
 revert build build_releasetools_ubifs.patch
+revert system/core system_core_init_charging.patch
 revert system/core system_core_init_ubi.patch
 revert vendor/cyanogen vendor_cyanogen_products.patch
 

@@ -331,6 +331,23 @@ on boot
 
 ## Daemon processes to be run by init.
 ##
+# Power-off charging (boot_mode 8 or 9): init runs this instead of "boot",
+# so the modem, init.d and Android stay off. Stock init.charging.rc starts
+# the same ipod; it draws the battery from the logo partition.
+on charger
+    class_start charger
+
+service ipod /system/bin/logwrapper /system/bin/ipod
+    class charger
+    user root
+    group root
+
+# ipod asks for it (ctl.start shutdown) when the charger is unplugged.
+# Stock runs /system/bin/shutdown, which CM7 does not ship.
+service shutdown /system/bin/reboot -p
+    disabled
+    oneshot
+
 service ueventd /sbin/ueventd
     critical
 

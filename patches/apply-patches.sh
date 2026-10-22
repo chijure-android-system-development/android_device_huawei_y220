@@ -43,6 +43,10 @@ apply build build_releasetools_ubifs.patch
 # system/core — init entiende "mount ubifs ubi@system /system".
 apply system/core system_core_init_ubi.patch
 
+# system/core — boot_mode 8/9 (carga con el teléfono apagado): init corre
+# "charger" (ipod) en vez de "boot". BOARD_CHARGING_MODE_FILE.
+apply system/core system_core_init_charging.patch
+
 # hardware/alsa_sound — no recorrer un mixer que no se pudo abrir.
 apply hardware/alsa_sound alsa_sound_null_mixer.patch
 

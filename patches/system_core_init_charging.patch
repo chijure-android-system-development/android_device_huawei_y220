@@ -1,0 +1,70 @@
+diff --git a/init/Android.mk b/init/Android.mk
+index 936a959e5..ba48f1f98 100644
+--- a/init/Android.mk
++++ b/init/Android.mk
+@@ -26,6 +26,13 @@ ifeq ($(TARGET_HAS_ANCIENT_MSMCAMERA), true)
+     LOCAL_CFLAGS += -DNO_MSM_CAMDIR
+ endif
+ 
++# MediaTek: the LK boots the boot partition in power-off charging mode and
++# says so in a sysfs file; init then runs the "charger" trigger instead of
++# "early-boot"/"boot", so Android does not start.
++ifneq ($(BOARD_CHARGING_MODE_FILE),)
++    LOCAL_CFLAGS += -DBOARD_CHARGING_MODE_FILE=\"$(BOARD_CHARGING_MODE_FILE)\"
++endif
++
+ ifeq ($(BOARD_PROVIDES_BOOTMODE), true)
+     LOCAL_CFLAGS += -DBOARD_PROVIDES_BOOTMODE
+ endif
+diff --git a/init/init.c b/init/init.c
+index 0188ea4bf..2a10eac71 100755
+--- a/init/init.c
++++ b/init/init.c
+@@ -91,6 +91,26 @@ static const char *ENV[32];
+ static unsigned emmc_boot = 0;
+ static unsigned battchg_pause = 0;
+ 
++#ifdef BOARD_CHARGING_MODE_FILE
++/* MediaTek boot_mode: 8 KERNEL_POWER_OFF_CHARGING_BOOT, 9 LOW_POWER_OFF_CHARGING_BOOT. */
++static int charging_boot(void)
++{
++    char buf[8];
++    int fd, n;
++
++    fd = open(BOARD_CHARGING_MODE_FILE, O_RDONLY);
++    if (fd < 0)
++        return 0;
++    n = read(fd, buf, sizeof(buf) - 1);
++    close(fd);
++    if (n <= 0)
++        return 0;
++    buf[n] = 0;
++    n = atoi(buf);
++    return n == 8 || n == 9;
++}
++#endif
++
+ /* add_environment - add "key=value" to the current environment */
+ int add_environment(const char *key, const char *val)
+ {
+@@ -765,9 +785,20 @@ int main(int argc, char **argv)
+         action_for_each_trigger("boot-pause", action_add_queue_tail);
+     }
+ 
++#ifdef BOARD_CHARGING_MODE_FILE
++    if (charging_boot()) {
++        /* The charger UI instead of Android; /system and /data are up. */
++        INFO("power-off charging boot\n");
++        /* set_init_properties, queued above, publishes it as ro.bootmode. */
++        strlcpy(bootmode, "charger", sizeof(bootmode));
++        action_for_each_trigger("charger", action_add_queue_tail);
++    } else
++#endif
++    {
+     /* execute all the boot actions to get us started */
+     action_for_each_trigger("early-boot", action_add_queue_tail);
+     action_for_each_trigger("boot", action_add_queue_tail);
++    }
+ 
+         /* run all property triggers based on current state of the properties */
+     queue_builtin_action(queue_property_triggers_action, "queue_property_triggers");

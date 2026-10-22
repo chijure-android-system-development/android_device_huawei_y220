@@ -114,3 +114,8 @@ WIFI_FIRMWARE_LOADER := wmt_wifi_loader
 # SoftwareRenderer crop of their 32-pixel stride padding.
 # See frameworks_base_stagefright_mtk_omx.patch and libmtk_shim.
 BOARD_USES_MTK_OMX := true
+
+# Power-off charging: with the phone off and a charger plugged in, the LK
+# boots this image with boot_mode 8; init then runs "charger" (ipod in
+# init.rc) instead of booting Android. See system_core_init_charging.patch.
+BOARD_CHARGING_MODE_FILE := /sys/class/BOOT/BOOT/boot/boot_mode
