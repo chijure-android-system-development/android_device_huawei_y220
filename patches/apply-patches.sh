@@ -118,8 +118,8 @@ apply frameworks/base frameworks_base_bt_pan_no_crash.patch
 # de NullPointerException.
 apply packages/apps/Bluetooth packages_apps_Bluetooth_map_no_socket.patch
 
-# OPP: sin RFCOMM de BlueZ, el envío de archivos va por mtkbt con la
-# libextopp.so de stock (libbt_mtk_opp del device tree).
+# OPP: sin RFCOMM de BlueZ, el envío y la recepción de archivos van por
+# mtkbt con la libextopp.so de stock (libbt_mtk_opp del device tree).
 apply packages/apps/Bluetooth packages_apps_Bluetooth_opp_mtk.patch
 
 # servicemanager: el uid bluetooth registra cualquier nombre, como en MTK.

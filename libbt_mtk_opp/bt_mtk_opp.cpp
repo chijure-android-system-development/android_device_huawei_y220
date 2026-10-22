@@ -1,5 +1,5 @@
 /*
- * OPP client for the CM7 Bluetooth app over mtkbt.
+ * OPP client and server for the CM7 Bluetooth app over mtkbt.
  *
  * BlueZ RFCOMM does not exist on this kernel; mtkbt does OBEX itself. This
  * drives the stock libextopp.so the way the stock libextopp_jni does
@@ -8,7 +8,11 @@
  *    on the abstract bt.ext.adp.opp go into g_bt_opp_cntx at 0x560/0x564;
  *  - startListenMessage() is libextopp's receive loop, run on its own thread;
  *  - every result comes back through the jni callback as (event, params[]),
- *    with the bt_opp_ui_event ids of bt_opp_comm.h.
+ *    with the bt_opp_ui_event ids of bt_opp_comm.h: client events below
+ *    100, server events from 101.
+ *  - the server (stock oppsEnableNative/oppsAccessResponseNative) answers a
+ *    push request with (0, {total bytes, full path}) and libextopp writes
+ *    the file itself, in this process.
  * libextopp is dlopen'ed: it is a vendor blob and not in the build output.
  */
 
@@ -46,6 +50,10 @@ static struct {
     void (*client_push)(const char *, const char *, const char *);
     void (*client_abort)(void);
     void (*client_disconnect)(void);
+    void (*server_enable)(void);
+    void (*server_disable)(void);
+    void (*server_disconnect)(void);
+    void (*server_access_response)(int, char **);
     void (*string2bdaddr)(const char *, bt_addr_struct *);
     void (*listen)(void);
 } s_opp;
@@ -109,19 +117,25 @@ static bool load_libextopp(void)
     *(void **)&s_opp.client_push = dlsym(h, "btmtk_opp_client_push");
     *(void **)&s_opp.client_abort = dlsym(h, "btmtk_opp_client_abort");
     *(void **)&s_opp.client_disconnect = dlsym(h, "btmtk_opp_client_disconnect");
+    *(void **)&s_opp.server_enable = dlsym(h, "btmtk_opp_server_enable");
+    *(void **)&s_opp.server_disable = dlsym(h, "btmtk_opp_server_disable");
+    *(void **)&s_opp.server_disconnect = dlsym(h, "btmtk_opp_server_disconnect");
+    *(void **)&s_opp.server_access_response = dlsym(h, "btmtk_opp_server_access_response");
     *(void **)&s_opp.string2bdaddr = dlsym(h, "btmtk_util_convert_string2bdaddr");
     *(void **)&s_opp.listen = dlsym(h, "startListenMessage");
     if (!s_opp.ctx || !s_opp.set_jni_callback || !s_opp.client_enable ||
             !s_opp.client_connect || !s_opp.client_push || !s_opp.client_abort ||
-            !s_opp.client_disconnect || !s_opp.string2bdaddr || !s_opp.listen) {
+            !s_opp.client_disconnect || !s_opp.server_enable || !s_opp.server_disable ||
+            !s_opp.server_disconnect || !s_opp.server_access_response ||
+            !s_opp.string2bdaddr || !s_opp.listen) {
         LOGE("libextopp is missing a symbol");
         return false;
     }
     return true;
 }
 
-/* Stock enableServiceNative + startListenNative + oppcEnableNative. */
-static jboolean enableNative(JNIEnv *, jclass)
+/* Stock enableServiceNative + startListenNative, once per process. */
+static bool setup(void)
 {
     struct sockaddr_un a;
     int api, serv;
@@ -130,10 +144,7 @@ static jboolean enableNative(JNIEnv *, jclass)
     pthread_mutex_lock(&s_lock);
     if (s_ready) {
         pthread_mutex_unlock(&s_lock);
-        /* One listen thread per process; each session still enables, and
-         * a second btmtk_oppc_init answers ENABLE_FAIL, which is fine. */
-        s_opp.client_enable();
-        return JNI_TRUE;
+        return true;
     }
     if (s_opp.listen == NULL && !load_libextopp())
         goto fail;
@@ -166,12 +177,62 @@ static jboolean enableNative(JNIEnv *, jclass)
     pthread_detach(t);
     s_ready = 1;
     pthread_mutex_unlock(&s_lock);
+    return true;
+fail:
+    pthread_mutex_unlock(&s_lock);
+    return false;
+}
+
+/* oppcEnableNative. Each client session enables; a second btmtk_oppc_init
+ * answers ENABLE_FAIL, which is fine. */
+static jboolean enableNative(JNIEnv *, jclass)
+{
+    if (!setup())
+        return JNI_FALSE;
     /* Answers synchronously with BT_OPPC_ENABLE_SUCCESS/FAIL. */
     s_opp.client_enable();
     return JNI_TRUE;
-fail:
-    pthread_mutex_unlock(&s_lock);
-    return JNI_FALSE;
+}
+
+/* oppsEnableNative: mtkbt registers the OPP SDP record and accepts pushes.
+ * Answers with BT_OPPS_ENABLE_SUCCESS/FAIL (101/102). */
+static jboolean serverEnableNative(JNIEnv *, jclass)
+{
+    if (!setup())
+        return JNI_FALSE;
+    s_opp.server_enable();
+    return JNI_TRUE;
+}
+
+static void serverDisableNative(JNIEnv *, jclass)
+{
+    if (s_ready)
+        s_opp.server_disable();
+}
+
+static void serverDisconnectNative(JNIEnv *, jclass)
+{
+    if (s_ready)
+        s_opp.server_disconnect();
+}
+
+/* oppsAccessResponseNative: code 0 accepts and saves to path; otherwise the
+ * OBEX response without the final bit (0x43 forbidden), as stock. */
+static void serverAccessResponseNative(JNIEnv *env, jclass, jint code, jstring size,
+        jstring path)
+{
+    const char *sz, *p;
+    char *params[2];
+
+    if (!s_ready || size == NULL || path == NULL)
+        return;
+    sz = env->GetStringUTFChars(size, NULL);
+    p = env->GetStringUTFChars(path, NULL);
+    params[0] = (char *)sz;
+    params[1] = (char *)p;
+    s_opp.server_access_response(code, params);
+    env->ReleaseStringUTFChars(path, p);
+    env->ReleaseStringUTFChars(size, sz);
 }
 
 static jboolean connectNative(JNIEnv *env, jclass, jstring address)
@@ -223,6 +284,11 @@ static JNINativeMethod sMethods[] = {
     {"pushNative", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z", (void *)pushNative},
     {"abortNative", "()V", (void *)abortNative},
     {"disconnectNative", "()V", (void *)disconnectNative},
+    {"serverEnableNative", "()Z", (void *)serverEnableNative},
+    {"serverDisableNative", "()V", (void *)serverDisableNative},
+    {"serverDisconnectNative", "()V", (void *)serverDisconnectNative},
+    {"serverAccessResponseNative", "(ILjava/lang/String;Ljava/lang/String;)V",
+            (void *)serverAccessResponseNative},
 };
 
 jint JNI_OnLoad(JavaVM *vm, void *)

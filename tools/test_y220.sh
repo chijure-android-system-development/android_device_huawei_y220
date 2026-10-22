@@ -292,10 +292,10 @@ if section bt "BLUETOOTH"; then
     fi
     # Perfiles BlueZ (OPP, SCO, RFCOMM, PAN) abren sockets AF_BLUETOOTH; el
     # kernel MTK no tiene BlueZ, mtkbt lleva los perfiles. Los servidores de
-    # AOSP que reintentan sin socket son conocidos: SCO (manos libres), el
-    # listener OPP (recibir archivos) y PBAP. Otro componente es nuevo.
+    # AOSP que reintentan sin socket son conocidos: SCO (manos libres) y PBAP.
+    # El listener OPP ya no corre (recibe mtkbt); otro componente es nuevo.
     _af=$(grep -E "Address family not supported|Pan operation failed" "$LC" | grep " E/" | sed -E 's/^[^E]*E\/([^(]*)\(.*/\1/' | sort | uniq -c)
-    _af_new=$(echo "$_af" | grep -vE "bluetooth_ScoSocket.cpp|BtOppRfcommListener|BluetoothPbapService" | grep .)
+    _af_new=$(echo "$_af" | grep -vE "bluetooth_ScoSocket.cpp|BluetoothPbapService" | grep .)
     if [[ -z "$_af_new" ]]; then
         pass "Perfiles BT: solo los servidores BlueZ conocidos sin socket"
         [[ -n "$_af" ]] && echo "$_af" | while read -r l; do detail "conocido: $l"; done

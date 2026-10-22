@@ -15,7 +15,7 @@ puentes chicos entre las APIs de CM7 y `mtkbt`.
 | Emparejar (confirmación numérica) | OK, en los dos sentidos | ídem |
 | Nombre del remoto tras emparejar entrante | OK | msg 194 → `onMtkRemoteName` |
 | Enviar archivos (OPP cliente) | OK | `libbt_mtk_opp` + `packages_apps_Bluetooth_opp_mtk.patch` |
-| Recibir archivos (OPP servidor) | Falta | `btmtk_opps_*` de `libextopp` |
+| Recibir archivos (OPP servidor) | OK | `libbt_mtk_opp` + `BluetoothOppMtkServerSession` |
 | Audio A2DP, manos libres (SCO), PAN | Falta | sin socket BlueZ |
 | Remoto emparejado entrante en la lista de envío | Falta | falta su `Class` |
 
@@ -102,6 +102,31 @@ Referencias: headers de BlueAngel para MT6572 en
 `btmtk_opp_client_*` y el arranque salen de descompilar `libextopp_jni.so`
 de stock.
 
+## Recepción de archivos (OPP servidor)
+
+Al encender BT, `BluetoothOppService` habilita el servidor de `mtkbt`
+(`btmtk_opp_server_enable`, responde 101/102) en lugar del listener RFCOMM de
+BlueZ, que fallaba con "Address family not supported". `mtkbt` registra el
+servicio OPP en SDP y hace OBEX; `libextopp` escribe el archivo dentro del
+proceso de la app.
+
+Eventos del servidor (0x65..0x71): 101/102 enable ok/falla, 106 inicio,
+105 progreso [bytes recibidos], 107 recibido [total], 108 falla [código],
+112 desconectado, 113 petición [dirección, nombre, MIME, tamaño]. Salen de
+descompilar `my_opps_ui_cb` y `opp_server_*` de `libextopp.so`.
+
+`BluetoothOppMtkServerSession` repite `BluetoothOppObexServerSession.onPut()`:
+valida nombre y tipo, inserta el share entrante, avisa con la notificación y
+espera la respuesta del usuario (o el timeout de AOSP). Al aceptar llama
+`btmtk_opp_server_access_response(0, {tamaño, ruta})` con la ruta completa que
+da `BluetoothOppReceiveFileInfo` (`/sdcard/bluetooth/<nombre>`); al rechazar,
+código 0x43, como la app de stock (`OppServiceNative.oppsAccessResponse`).
+Los objetos siguientes de la misma conexión se aceptan solos, como en AOSP.
+
+Probado el 2026-10-21: un JPEG de 205599 bytes desde otro teléfono llegó
+completo a `/mnt/sdcard/bluetooth/`, estado 200 y escaneado por el media
+scanner.
+
 ## Pendientes
 
 - **Clase del remoto en emparejamiento entrante.** `BluetoothSettings`
@@ -110,8 +135,6 @@ de stock.
   para enviarle. La clase viene en los eventos de emparejamiento (o en
   `READ_REMOTE_NAME_CNF`); hay un volcado temporal de 164/172 en
   `libbt_mtk_gap` sin commitear para ver el offset.
-- **Recibir archivos**: `btmtk_opp_server_enable()`, `BT_OPPS_PUSH_ACCESS_REQUEST`
-  (113) y `btmtk_opp_server_access_response()`.
 - **A2DP**: `mtkbt` lleva AVDTP; stock manda SBC por `/dev/socket/bt.a2dp.stream`
   desde `libmtka2dp`.
 - **Manos libres**: la voz del MT6572 va por BTCVSD, no por SCO sobre HCI.
