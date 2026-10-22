@@ -272,19 +272,7 @@ diff --git a/core/jni/Android.mk b/core/jni/Android.mk
 index bb01d9d1f48..4f8c0dca152 100644
 --- a/core/jni/Android.mk
 +++ b/core/jni/Android.mk
-@@ -142,7 +142,10 @@ LOCAL_SRC_FILES:= \
- 	android_backup_FileBackupHelperBase.cpp \
- 	android_backup_BackupHelperDispatcher.cpp \
- 	android_content_res_ObbScanner.cpp \
--    android_content_res_Configuration.cpp
-+    android_content_res_Configuration.cpp \
-+    $(BOARD_CAMERA_CLIENT_SRC)
-+
-+LOCAL_CFLAGS += $(BOARD_CAMERA_CLIENT_CFLAGS)
- 
- ifeq ($(BOARD_HAVE_FM_RADIO),true)
-     ## There's a difference. BOARD_HAVE_FM_RADIO enabled the runtime
-@@ -254,6 +257,12 @@ LOCAL_CFLAGS += -DHAVE_BLUETOOTH
+@@ -254,6 +254,12 @@ LOCAL_CFLAGS += -DHAVE_BLUETOOTH
  LOCAL_SHARED_LIBRARIES += libbluedroid libdbus
  endif
  
