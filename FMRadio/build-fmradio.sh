@@ -11,7 +11,9 @@
 #      platform.xml gid mapping is ignored otherwise).
 #   5. volume follows STREAM_MUSIC (GB has no STREAM_FM) and the speaker
 #      switch goes through FmPlayer.setForceUse (GB has no FOR_PROPRIETARY).
-# The result is unsigned; the build signs it with the platform key.
+# The result is signed here with the AOSP platform test key, as the build
+# does not sign prebuilt apks (only squisher's opticharger did, and it skips
+# them when it cannot find apkcerts.txt).
 #
 # Host tools: baksmali, smali, apktool, zip. javac/dx run in cm7-builder.
 #
@@ -81,5 +83,12 @@ mkdir "$W/apk"
 (cd "$W/apk" && unzip -q "$STOCK/app/FMRadio.apk" -x 'META-INF/*' 'lib/*' && \
     unzip -o -q "$W/rebuilt.apk" AndroidManifest.xml && cp "$W/classes.dex" . && \
     zip -q -r "$W/FMRadio.apk" .)
-cp "$W/FMRadio.apk" "$HERE/FMRadio.apk"
+docker cp "$W/FMRadio.apk" cm7-builder:/tmp/fmradio-unsigned.apk
+docker exec cm7-builder bash -c 'cd ~/cm7 && \
+    java -jar out/host/linux-x86/framework/signapk.jar \
+        build/target/product/security/platform.x509.pem \
+        build/target/product/security/platform.pk8 \
+        /tmp/fmradio-unsigned.apk /tmp/fmradio-signed.apk && \
+    out/host/linux-x86/bin/zipalign -f 4 /tmp/fmradio-signed.apk /tmp/fmradio.apk'
+docker cp cm7-builder:/tmp/fmradio.apk "$HERE/FMRadio.apk"
 echo "OK: $HERE/FMRadio.apk"

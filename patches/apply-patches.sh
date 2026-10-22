@@ -152,3 +152,7 @@ apply system/netd system_netd_logwrapper_waitpid.patch
 # hostapd 0.8 (external/wpa_supplicant_8, CM ics): sin interfaz monitor
 # (ap0 de wlan_mt6582 no la permite) el EAPOL sale por PF_PACKET en ap0.
 apply external/wpa_supplicant_8 external_wpa_supplicant_8_nl80211_eapol.patch
+
+# FileManager: la librería de soporte v2 trae clases de Honeycomb que nunca
+# se cargan en GB; ProGuard (solo userdebug/user) se detenía por ellas.
+apply packages/apps/FileManager packages_apps_FileManager_proguard_support.patch

@@ -16,6 +16,7 @@ revert() {
     (cd "$CM7_ROOT/$project" && git apply --reverse "$PATCHES_DIR/$patch")
 }
 
+revert packages/apps/FileManager packages_apps_FileManager_proguard_support.patch
 revert external/wpa_supplicant_8 external_wpa_supplicant_8_nl80211_eapol.patch
 revert system/netd system_netd_logwrapper_waitpid.patch
 revert system/netd system_netd_custom_softap.patch

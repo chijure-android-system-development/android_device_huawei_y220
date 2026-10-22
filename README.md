@@ -141,6 +141,41 @@ el contenido del ZIP. system_server, mediaserver, RIL, wpa_supplicant y mtkbt
 permanecieron activos; Wi-Fi se asoció a DEPA2 a 65 Mb/s, la app Cámara abrió
 y no aparecieron errores fatales ni tombstones nuevos.
 
+### Build de publicación (`userdebug`)
+
+`breakfast`/`timed_build.sh` siempre dan `eng`. Para `userdebug`, `lunch`
+fuera de una tubería (dentro de un `| grep` no exporta `CM_BUILD` y `make`
+carga todos los productos) y después `make bacon`:
+
+```bash
+docker exec cm7-builder bash -c 'cd /home/builder/cm7 && rm -f out/target/product/y220/system/build.prop && \
+  source build/envsetup.sh && lunch cyanogen_y220-userdebug && make -j2 bacon'
+```
+
+`make bacon` compila todo y falla al final: el OTA se llama
+`cyanogen_y220-ota-eng..zip` (`FILE_NAME_TAG` es `eng.$USER` sin
+`BUILD_NUMBER`, y `USER` está vacío en el contenedor), pero `squisher`
+busca `-ota-userdebug.` y `opticharger` busca `apkcerts.txt` en
+`target_files-userdebug.`. Se empaqueta a mano:
+
+```bash
+docker exec cm7-builder bash -c 'cd /home/builder/cm7 && source build/envsetup.sh && \
+  lunch cyanogen_y220-userdebug && cp $OUT/cyanogen_y220-ota-eng..zip $OUT/cyanogen_y220-ota-userdebug..zip && \
+  APKCERTS=$OUT/obj/PACKAGING/target_files_intermediates/cyanogen_y220-target_files-eng./META/apkcerts.txt \
+  ./vendor/cyanogen/tools/squisher'
+```
+
+Sin `APKCERTS` `opticharger` no toca ningún apk. `FMRadio.apk` ya viene
+firmado con la clave platform (`build-fmradio.sh`), porque el build no firma
+los apk prebuilt; antes solo lo firmaba `opticharger` y en `userdebug`
+quedaba sin firma (PackageManager lo ignoraba). FileManager necesita
+`packages_apps_FileManager_proguard_support.patch` para pasar ProGuard.
+
+Zip de la beta 1 (2026-10-22): `cm-7-20261022-UNOFFICIAL-y220.zip`,
+96550445 bytes, md5 `083b261442476c923a776953860ff22b`, kernel `#95`.
+Instalado limpio: `test_y220` 63 PASS / 0 FAIL, `blobcheck` sin problemas
+nuevos.
+
 ## System de stock completo
 
 `/home/chijure/y220/system.ubifs` es el `/system` de C482B206SP05 ya extraído

@@ -7,6 +7,8 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_SUFFIX := $(COMMON_ANDROID_PACKAGE_SUFFIX)
 LOCAL_SRC_FILES := FMRadio.apk
-# ACCESS_MTK_MMHW (gid media for /dev/fm) is signatureOrSystem.
+# ACCESS_MTK_MMHW (gid media for /dev/fm) is signatureOrSystem. The apk is
+# already signed with this key by build-fmradio.sh; the build does not sign
+# prebuilts, and squisher's opticharger re-signs it with the same key.
 LOCAL_CERTIFICATE := platform
 include $(BUILD_PREBUILT)
