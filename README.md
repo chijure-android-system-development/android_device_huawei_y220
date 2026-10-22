@@ -3,7 +3,7 @@
 MediaTek MT6572, panel ILI9488 320x480, NAND UBIFS. No es el Y210.
 
 El teléfono corre CM7 instalado desde el zip de este árbol
-(`cm-7-20261021`) con el kernel `#93` (boot flasheado aparte el 2026-10-22) y el recovery TWRP 3.1.1-0.1. Algunos
+(`cm-7-20261022`) con el kernel `#94` (boot flasheado aparte el 2026-10-22) y el recovery TWRP 3.1.1-0.1. Algunos
 cambios posteriores se probaron con actualización puntual sobre `/system` y
 quedan documentados abajo.
 
@@ -11,7 +11,7 @@ quedan documentados abajo.
 
 `lunch cyanogen_y220-eng` selecciona el producto. `breakfast y220` elige
 `eng` aunque `timed_build.sh` pida `userdebug`. El `kernel` prebuilt es el
-`#93` (3853664 bytes, netfilter), con sus módulos en `prebuilt/modules`.
+`#94` (3848368 bytes, netfilter, sin interfaz de firmware táctil), con sus módulos en `prebuilt/modules`.
 `prebuilt/ramdisk-stock.img` es el ramdisk de boot de stock (612053 bytes,
 gzip cpio, sin cabecera MTK); solo lo usa `pack-bootimg.sh`. El boot del zip
 lleva el ramdisk de CM7 (`init.rc` de este árbol).
