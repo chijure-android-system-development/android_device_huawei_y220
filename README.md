@@ -182,7 +182,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | WiFi (WPA2, DHCP, internet) | ✅ con el `wlan_mt6582.ko` arreglado |
 | SIM y red (Claro) | ✅ registro; llamadas y datos sin probar |
 | Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
-| Audio | ✅ salida primaria abierta; sonido, micrófono y llamadas sin confirmar |
+| Audio | ✅ sonido por el parlante; micrófono y llamadas sin confirmar |
 | Acelerómetro, vibración | ✅ |
 | Cámara | ❌ sensores del Y330 en `libcameracustom` |
 | Video por hardware (OMX MTK) | ❌ solo software |
