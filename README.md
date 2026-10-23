@@ -109,6 +109,13 @@ está en el device tree:
   alinearía la tabla pero cambia los enums de `system/audio.h`.
   `mediaserver` lleva el grupo 9997 para leer la calibración de `/data/nvram`;
   `/dev/ebc` (CVSD, audio SCO) es `system:media`.
+  Grabación: el `AudioMTKStreamIn` del stock solo abre el micrófono en
+  estéreo a 48 kHz (`Set`/`CheckSampleRate`); la conversión la hacía el
+  AudioFlinger de MTK. El de CM solo reintenta una entrada rechazada si la
+  frecuencia sugerida es como mucho el doble de la pedida, así que 8 y
+  16 kHz fallaban. `libaudio_wrapper` abre la entrada con la configuración
+  que el HAL acepta y en `read()` convierte canales y frecuencia (resampler
+  speex de `libaudioutils`).
 - **Cámara:** el HAL del stock carga (`jpeg_mem_dest` y `pmem_*` en
   `libmtk_symbols`), pero el `libcameracustom` del Y330 busca los sensores
   del Y330 (s5k5ca, mt9d113, hi258, ov2685), no el del Y220. Pendiente.
@@ -182,7 +189,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | WiFi (WPA2, DHCP, internet) | ✅ con el `wlan_mt6582.ko` arreglado |
 | SIM y red (Claro) | ✅ registro; llamadas y datos sin probar |
 | Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
-| Audio | ✅ sonido por el parlante; micrófono y llamadas sin confirmar |
+| Audio | ✅ parlante y micrófono; llamadas sin confirmar |
 | Acelerómetro, vibración | ✅ |
 | Cámara | ❌ sensores del Y330 en `libcameracustom` |
 | Video por hardware (OMX MTK) | ❌ solo software |
