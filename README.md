@@ -123,6 +123,20 @@ está en el device tree:
   16 kHz fallaban. `libaudio_wrapper` abre la entrada con la configuración
   que el HAL acepta y en `read()` convierte canales y frecuencia (resampler
   speex de `libaudioutils`).
+  Llamadas: al empezar cada llamada el HAL del Y330 le manda al modem del
+  Y220 sus ajustes de voz por CCCI, y dos mensajes tiraban el modem
+  (excepción, la llamada quedaba en DIALING y no se podía colgar). El
+  buzón CCCI que el kernel vuelca con `receive MD_EX` muestra el último
+  mensaje antes de la caída:
+  - `2F05` (`SpeechDriverLAD::SetEnh1DownlinkGain`): es el único método de
+    `SpeechDriverLAD` que el audio GB del Y220 no tiene; su modem no lo
+    conoce. El HAL está enlazado con `-Bsymbolic` y lo llama solo por la
+    vtable, así que el wrapper apunta esa entrada a una función vacía.
+  - `2F00` con -10408: CM pone el volumen de voz en 0 mientras enruta la
+    llamada y el HAL lo traduce a 2602 dB de atenuación. El wrapper sube
+    `set_voice_volume` al mínimo del stream de voz (índice 1 de 5).
+  Con datos móviles activos las llamadas también conectan (la red
+  suspende los datos en EDGE); `AT+EGTP=1` de `MediaTekRIL` no estorba.
 - **Cámara:** el Y220 tiene una sola cámara, `gc0329_yuv` (VGA trasera, sin
   frontal ni flash). HAL del stock del Y330 (`camera.mtk.so`) con:
   - el `libcameracustom` del propio Y220 (el del Y330 solo conoce los
@@ -249,12 +263,12 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | WiFi (WPA2, DHCP, internet) | ✅ con el `wlan_mt6582.ko` arreglado |
 | SIM, red, datos móviles (Claro, EDGE) y SMS | ✅ |
 | Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
-| Audio | ✅ parlante y micrófono; llamadas sin confirmar |
+| Audio | ✅ parlante, micrófono y voz en llamadas |
 | Acelerómetro, vibración | ✅ |
 | Carga con el teléfono apagado | ✅ animación original de Huawei |
 | Cámara: cuelgue al disparar y salir de la app | ✅ protegido en el envoltorio |
 | Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
-| Llamadas | ❓ fallaron en una prueba sin logs; pendiente |
+| Llamadas | ✅ salientes y entrantes, colgar, espera; también con datos activos |
 | Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
 | Hotspot WiFi | ✅ AP `wlan0` (kernel #98); cliente con DHCP/DNS/NAT, vuelve a WiFi normal |
 | Video por hardware (OMX MTK) | ❌ solo software |

@@ -15,12 +15,25 @@
  * 16 kHz recording failed. Refused inputs are opened here at the HAL's
  * suggested config and converted on read to what AudioFlinger asked for:
  * channels first, then the rate (speex resampler from libaudioutils).
+ *
+ * Calls: at call start the Y330 HAL sends the modem the speech message
+ * 0x2F05 (SpeechDriverLAD::SetEnh1DownlinkGain). The Y220 modem predates
+ * it (the Y220 GB audio has every other SpeechDriverLAD message but this
+ * one) and takes a modem exception on it, so no call ever connected.
+ * The HAL is linked -Bsymbolic and only calls it through the
+ * SpeechDriverLAD vtable; that entry is pointed at a no-op here.
+ * CM's audio policy also sets the voice volume to 0 while it routes the
+ * call. For 0 the HAL sends a downlink gain of -10408 (2602 dB down,
+ * message 0x2F00), which the Y220 modem does not take either. The voice
+ * call stream never goes below index 1, so 0 is raised to that step.
  */
 
 #define LOG_TAG "audio_hw_mtk"
 
 #include <dlfcn.h>
 #include <errno.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,8 +52,14 @@ typedef int (*open_input_t)(struct audio_hw_device *dev,
 typedef void (*close_input_t)(struct audio_hw_device *dev,
                               struct audio_stream_in *stream_in);
 
+typedef int (*set_voice_volume_t)(struct audio_hw_device *dev, float volume);
+
 static open_input_t mtk_open_input;
 static close_input_t mtk_close_input;
+static set_voice_volume_t mtk_set_voice_volume;
+
+/* Lowest voice call step: index 1 of AudioService's 5. */
+#define MIN_VOICE_VOLUME (1.0f / 5.0f)
 
 struct conv_in {
     struct audio_stream_in stream;      /* what AudioFlinger sees */
@@ -356,6 +375,55 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
     free_conv(in);
 }
 
+#define SPEECH_DRIVER_LAD_VTABLE "_ZTVN7android15SpeechDriverLADE"
+#define SET_ENH1_DL_GAIN "_ZN7android15SpeechDriverLAD19SetEnh1DownlinkGainEs"
+/* sizeof the SpeechDriverLAD vtable in the Y330 HAL, in entries. */
+#define SPEECH_DRIVER_LAD_VTABLE_ENTRIES (200 / sizeof(void *))
+
+/* status_t SpeechDriverLAD::SetEnh1DownlinkGain(int16_t), never sent. */
+static int skip_enh1_dl_gain(void *self, short gain)
+{
+    (void) self;
+    (void) gain;
+    return 0;
+}
+
+static void drop_enh1_dl_gain(void *handle)
+{
+    void **vtable = (void **) dlsym(handle, SPEECH_DRIVER_LAD_VTABLE);
+    void *fn = dlsym(handle, SET_ENH1_DL_GAIN);
+    long page = sysconf(_SC_PAGESIZE);
+    size_t i;
+
+    if (vtable == NULL || fn == NULL) {
+        ALOGW("no %s in %s; speech message 0x2F05 stays", SET_ENH1_DL_GAIN, MTK_AUDIO_HAL);
+        return;
+    }
+    for (i = 0; i < SPEECH_DRIVER_LAD_VTABLE_ENTRIES; i++) {
+        uintptr_t start = (uintptr_t) &vtable[i] & ~(page - 1);
+
+        if (vtable[i] != fn)
+            continue;
+        /* The vtable is in RELRO, read-only once relocated. */
+        if (mprotect((void *) start, page, PROT_READ | PROT_WRITE) != 0) {
+            ALOGE("cannot unprotect the SpeechDriverLAD vtable: %s", strerror(errno));
+            return;
+        }
+        vtable[i] = (void *) skip_enh1_dl_gain;
+        mprotect((void *) start, page, PROT_READ);
+        ALOGI("speech message 0x2F05 (SetEnh1DownlinkGain) disabled");
+        return;
+    }
+    ALOGW("%s not in the SpeechDriverLAD vtable", SET_ENH1_DL_GAIN);
+}
+
+static int adev_set_voice_volume(struct audio_hw_device *dev, float volume)
+{
+    if (volume < MIN_VOICE_VOLUME)
+        volume = MIN_VOICE_VOLUME;
+    return mtk_set_voice_volume(dev, volume);
+}
+
 static int mtk_adev_open(const hw_module_t *module, const char *name,
                          hw_device_t **device)
 {
@@ -377,6 +445,8 @@ static int mtk_adev_open(const hw_module_t *module, const char *name,
         return -EINVAL;
     }
 
+    drop_enh1_dl_gain(handle);
+
     /* The MTK device keeps this module as its hw_device_t.module. */
     ret = mtk->methods->open(module, name, device);
     if (ret != 0)
@@ -387,6 +457,8 @@ static int mtk_adev_open(const hw_module_t *module, const char *name,
     mtk_close_input = adev->close_input_stream;
     adev->open_input_stream = adev_open_input_stream;
     adev->close_input_stream = adev_close_input_stream;
+    mtk_set_voice_volume = adev->set_voice_volume;
+    adev->set_voice_volume = adev_set_voice_volume;
     return 0;
 }
 
