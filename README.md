@@ -86,6 +86,13 @@ está en el device tree:
   3000..3029; el GB usaba 3020 para el estado PS, este 3022). Acepta las
   llamadas entrantes con `SET_CALL_INDICATION` (sin eso no suenan), pide
   GPRS "always" al encender la radio y manda el cid en `SETUP_DATA_CALL`.
+  La señal viene en el formato de MTK (ASU, BER y después RSSI/RSCP/Ec/N0 en
+  cuartos de dBm); AOSP tomaba el RSSI por el dBm de CDMA y mostraba sin
+  señal, así que `responseSignalStrength` la traduce a GSM.
+- **APN:** `apns-conf.xml` en formato `version="7"` (el de CM7 era 6 y
+  TelephonyProvider descartaba el archivo entero: cero APN) con Claro PE y
+  Movistar PE. Si la base quedó vacía, borrar
+  `/data/data/com.android.providers.telephony/databases/telephony.db`.
 - **WiFi:** `wpa_supplicant_8` sobre nl80211 con
   `wpa_supplicant_8_lib` (START/STOP/MACADDR). El HAL carga
   `wlan_mt6582.ko` y `wmt_wifi_loader` (`wmt-wifi-on.sh`) enciende WMT WiFi.
@@ -116,9 +123,20 @@ está en el device tree:
   16 kHz fallaban. `libaudio_wrapper` abre la entrada con la configuración
   que el HAL acepta y en `read()` convierte canales y frecuencia (resampler
   speex de `libaudioutils`).
-- **Cámara:** el HAL del stock carga (`jpeg_mem_dest` y `pmem_*` en
-  `libmtk_symbols`), pero el `libcameracustom` del Y330 busca los sensores
-  del Y330 (s5k5ca, mt9d113, hi258, ov2685), no el del Y220. Pendiente.
+- **Cámara:** el Y220 tiene una sola cámara, `gc0329_yuv` (VGA trasera, sin
+  frontal ni flash). HAL del stock del Y330 (`camera.mtk.so`) con:
+  - el `libcameracustom` del propio Y220 (el del Y330 solo conoce los
+    sensores del Y330); las dos llamadas que le faltan
+    (`custom_GetYuvPreflashAF`, `custom_GetYuvAfLampSupport`, sin lámpara AF)
+    devuelven 0 desde `libmtk_symbols`, igual que en el Y330;
+  - `jpeg_mem_dest` y `pmem_*` en `libmtk_symbols`;
+  - `libcamera_wrapper` (`camera.mt6572`), que reporta solo la cámara 0 (el
+    HAL agrega siempre la TV analógica como segunda trasera y la app la
+    abría: sin cuadros), saca `hdr` de `scene-mode-values` y pasa el JPEG
+    que llega como `MTK_CAMERA_MSG_EXT_DATA` (el CameraClient de CM lo
+    descartaba) como `CAMERA_MSG_COMPRESSED_IMAGE`.
+  Gallery2 deshabilita su `CameraLauncher` si en el primer arranque no hay
+  cámara; si quedó así: `pm enable com.android.gallery3d/com.android.camera.CameraLauncher`.
 - **Gráfica:** `gralloc.mt6572` + EGL Mali del Y330. Sin hwcomposer: el del
   stock necesita el SurfaceFlinger de MTK.
 - **Media:** solo codecs de software (`configs/media_codecs.xml`). Los OMX de
@@ -187,11 +205,11 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Pantalla táctil y teclas atrás/home/menú | ✅ |
 | microSD, USB (adb, almacenamiento) | ✅ |
 | WiFi (WPA2, DHCP, internet) | ✅ con el `wlan_mt6582.ko` arreglado |
-| SIM y red (Claro) | ✅ registro; llamadas y datos sin probar |
+| SIM, red y datos móviles (Claro, EDGE) | ✅ llamadas sin probar |
 | Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
 | Audio | ✅ parlante y micrófono; llamadas sin confirmar |
 | Acelerómetro, vibración | ✅ |
-| Cámara | ❌ sensores del Y330 en `libcameracustom` |
+| Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
 | Video por hardware (OMX MTK) | ❌ solo software |
 
 Pruebas con QApp (`~/projects/qapp`): los reportes quedan en

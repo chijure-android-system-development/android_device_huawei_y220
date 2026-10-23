@@ -12,6 +12,7 @@ LOCAL_SRC_FILES := \
     mtk_audio.cpp \
     mtk_ui.cpp \
     MtkCameraParameters.cpp \
+    mtk_cameracustom.cpp \
     jpeg_mem_dest.c
 LOCAL_C_INCLUDES := external/jpeg
 LOCAL_SHARED_LIBRARIES := liblog libcutils libutils libhardware

@@ -87,7 +87,8 @@ y330:lib/libspeech_enh_lib.so
 y330:lib/hw/sensors.default.so:lib/hw/sensors.mt6572.so
 
 # Camera
-y330:lib/hw/camera.default.so:lib/hw/camera.mt6572.so
+# The HAL module itself; libcamera_wrapper (camera.mt6572) loads it.
+y330:lib/hw/camera.default.so:lib/hw/camera.mtk.so
 y330:lib/libcam.camadapter.so
 y330:lib/libcam.campipe.so
 y330:lib/libcam.camshot.so
@@ -97,7 +98,9 @@ y330:lib/libcam.utils.so
 y330:lib/libcam_camera_exif.so
 y330:lib/libcamalgo.so
 y330:lib/libcamdrv.so
-y330:lib/libcameracustom.so
+# Sensor list and tuning: the Y220's own (gc0329). The Y330 one only knows
+# the Y330 sensors; the two calls it lacks are in libmtk_symbols.
+y220:lib/libcameracustom.so
 y330:lib/libfeatureio.so
 y330:lib/libimageio.so
 y330:lib/libJpgEncPipe.so

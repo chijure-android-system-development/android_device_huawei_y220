@@ -26,6 +26,7 @@ PRODUCT_PACKAGES += \
 # Graphics, audio, lights
 PRODUCT_PACKAGES += \
     audio.primary.mt6572 \
+    camera.mt6572 \
     audio_policy.default \
     audio.a2dp.default \
     audio.usb.default \
