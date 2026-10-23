@@ -50,6 +50,7 @@ PRODUCT_PACKAGES += \
 PRODUCT_COPY_FILES += \
     device/huawei/y220/configs/audio_policy.conf:system/etc/audio_policy.conf \
     device/huawei/y220/configs/media_codecs.xml:system/etc/media_codecs.xml \
+    device/huawei/y220/configs/media_profiles.xml:system/etc/media_profiles.xml \
     device/huawei/y220/configs/vold.fstab:system/etc/vold.fstab \
     device/huawei/y220/configs/gps.conf:system/etc/gps.conf \
     device/huawei/y220/keylayout/ACCDET.kl:system/usr/keylayout/ACCDET.kl \

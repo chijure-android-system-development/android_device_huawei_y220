@@ -155,6 +155,16 @@ está en el device tree:
     salida inmediata de la app, el hilo de captura del HAL quedó colgado
     en `SingleShot::createSensorRawImg`, `stopPreview` lo esperó para
     siempre (ANR) y la cámara siguió abierta hasta reiniciar mediaserver.
+  Video: el HAL nombra sus cuadros de grabación `yuv420i-yyuvyy-3plane`
+  (I420 de MTK) y el `CameraSource` de CM abortaba mediaserver con ese
+  nombre; el wrapper lo reporta como `yuv420p` (OMX YUV420Planar, mismo
+  orden de planos) y le devuelve al HAL su nombre en `set_parameters`.
+  También rechaza los buffers de metadatos (los encoders `OMX.google.*`
+  necesitan el YUV). `configs/media_profiles.xml` es propio (el stock lo
+  tenía compilado en libs de MTK): alta MPEG-4 640x480 a 15 fps (el
+  encoder por software es Core Profile Level 2, 23760 macrobloques/s) con
+  AMR-WB, baja H.263 176x144 con AMR-NB. Con AAC (`AACEncoder`) el
+  `MPEG4Writer` abortaba en `CHECK_GE(timestampUs, 0)`.
   Gallery2 deshabilita su `CameraLauncher` si en el primer arranque no hay
   cámara; si quedó así: `pm enable com.android.gallery3d/com.android.camera.CameraLauncher`.
 - **Gráfica:** `gralloc.mt6572` + EGL Mali del Y330. Sin hwcomposer: el del
@@ -267,7 +277,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Acelerómetro, vibración | ✅ |
 | Carga con el teléfono apagado | ✅ animación original de Huawei |
 | Cámara: cuelgue al disparar y salir de la app | ✅ protegido en el envoltorio |
-| Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
+| Cámara (gc0329) | ✅ vista previa, foto y video (VGA MPEG-4 + AMR-WB) |
 | Llamadas | ✅ salientes y entrantes, colgar, espera; también con datos activos |
 | Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
 | Hotspot WiFi | ✅ AP `wlan0` (kernel #98); cliente con DHCP/DNS/NAT, vuelve a WiFi normal |

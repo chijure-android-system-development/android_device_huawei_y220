@@ -20,6 +20,13 @@
  *   stopPreview waits for it forever: the app gets an ANR and the camera
  *   stays open until mediaserver restarts. stop_preview and release
  *   wait first for the JPEG (or an error) of a capture in progress.
+ * - Video: the HAL names its recording frames "yuv420i-yyuvyy-3plane"
+ *   (MTK's I420: Y, U, V planes). CM's CameraSource only knows the AOSP
+ *   names and aborted mediaserver on it. get_parameters reports it as
+ *   "yuv420p", which CameraSource maps to OMX YUV420Planar, the same
+ *   layout; set_parameters gives the HAL its own name back. Metadata
+ *   buffers are refused: they would carry MTK buffer handles that the
+ *   software encoders (OMX.google.*) cannot read.
  */
 
 #define LOG_TAG "camera_mtk"
@@ -53,6 +60,7 @@ static void (*mtk_set_callbacks)(struct camera_device *, camera_notify_callback,
 static int (*mtk_take_picture)(struct camera_device *);
 static void (*mtk_stop_preview)(struct camera_device *);
 static void (*mtk_release)(struct camera_device *);
+static int (*mtk_set_parameters)(struct camera_device *, const char *);
 
 /* The app's callbacks; one camera device is open at a time. */
 static camera_data_callback app_data_cb;
@@ -211,6 +219,24 @@ static void limit_picture_size(char *params)
     }
 }
 
+#define MTK_VIDEO_FORMAT "yuv420i-yyuvyy-3plane"
+#define AOSP_VIDEO_FORMAT "yuv420p"
+
+/*
+ * Replaces the value of key in params when it is from, in place. to must
+ * not be longer than from.
+ */
+static void rename_value(char *params, const char *key, const char *from, const char *to)
+{
+    char *end, *v = find_value(params, key, &end);
+    size_t len = strlen(to);
+
+    if (v == NULL || (size_t) (end - v) != strlen(from) || strncmp(v, from, end - v) != 0)
+        return;
+    memcpy(v, to, len);
+    memmove(v + len, end, strlen(end) + 1);
+}
+
 static char *wrap_get_parameters(struct camera_device *dev)
 {
     char *params = mtk_get_parameters(dev);
@@ -218,8 +244,39 @@ static char *wrap_get_parameters(struct camera_device *dev)
     if (params != NULL) {
         drop_hdr(params);
         limit_picture_size(params);
+        rename_value(params, "video-frame-format", MTK_VIDEO_FORMAT, AOSP_VIDEO_FORMAT);
     }
     return params;
+}
+
+static int wrap_set_parameters(struct camera_device *dev, const char *params)
+{
+    char *end, *v, *mtk_params;
+    size_t head, extra = strlen(MTK_VIDEO_FORMAT) - strlen(AOSP_VIDEO_FORMAT);
+    int ret;
+
+    mtk_params = malloc(strlen(params) + extra + 1);
+    if (mtk_params == NULL)
+        return -ENOMEM;
+    strcpy(mtk_params, params);
+
+    v = find_value(mtk_params, "video-frame-format", &end);
+    if (v != NULL && (size_t) (end - v) == strlen(AOSP_VIDEO_FORMAT) &&
+        strncmp(v, AOSP_VIDEO_FORMAT, end - v) == 0) {
+        head = v - mtk_params;
+        memmove(v + strlen(MTK_VIDEO_FORMAT), end, strlen(end) + 1);
+        memcpy(mtk_params + head, MTK_VIDEO_FORMAT, strlen(MTK_VIDEO_FORMAT));
+    }
+
+    ret = mtk_set_parameters(dev, mtk_params);
+    free(mtk_params);
+    return ret;
+}
+
+static int wrap_store_meta_data_in_buffers(struct camera_device *dev, int enable)
+{
+    (void) dev;
+    return enable ? -EINVAL : 0;
 }
 
 static void wrap_data_cb(int32_t msg_type, const camera_memory_t *data,
@@ -340,6 +397,9 @@ static int wrap_open(const hw_module_t *module, const char *id, hw_device_t **de
         ops.stop_preview = wrap_stop_preview;
         mtk_release = ops.release;
         ops.release = wrap_release;
+        mtk_set_parameters = ops.set_parameters;
+        ops.set_parameters = wrap_set_parameters;
+        ops.store_meta_data_in_buffers = wrap_store_meta_data_in_buffers;
     }
     end_capture();
     dev->ops = &ops;
