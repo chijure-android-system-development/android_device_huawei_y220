@@ -165,10 +165,14 @@ está en el device tree:
   IPv6: el `NetworkInterface` de libcore lee `/proc/net/if_inet6` y sin
   ese archivo `enableNat()` fallaba antes de llegar a netd
   (`TETHER_ERROR_ENABLE_NAT_ERROR`).
-- **Hotspot WiFi:** no funciona. `netd` manda `softap fwreload wlan0 AP`
-  y luego `hostapd` sobre `wlan0`, pero en el driver MT6582 el AP es otra
-  interfaz (`ap0`), que se crea con el ioctl privado `set_p2p_mode`, y
-  `/dev/wmtWifi` solo entiende `0` y `1`.
+- **Hotspot WiFi:** `netd` escribe `AP` o `STA` en `/dev/wmtWifi`
+  (`WIFI_DRIVER_FW_PATH_PARAM` y `WIFI_DRIVER_FW_PATH_*` en BoardConfig)
+  antes y después de `hostapd`, y luego corre `hostapd` y el tethering
+  sobre `wlan0`. En el driver MT6582 el AP es otra interfaz, así que el
+  kernel #98 hace el cambio: con `AP` renombra la interfaz de cliente a
+  `sta0` y registra el AP como `wlan0`; con `STA` lo deshace. El overlay
+  `config_tether_wifi_regexs` es `wlan\\d`. Detalles en el README del
+  kernel.
 - **Recovery:** `TARGET_NO_RECOVERY := true`. El teléfono usa TWRP y el zip
   no escribe recovery; el recovery de CM ya no entraba con el kernel #96.
 - **CPU:** `TARGET_ARCH_VARIANT_CPU := cortex-a9`; el GCC 4.6 de 4.2 no
@@ -252,7 +256,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
 | Llamadas | ❓ fallaron en una prueba sin logs; pendiente |
 | Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
-| Hotspot WiFi | ❌ el driver necesita cambiar a modo AP (`ap0`) |
+| Hotspot WiFi | ✅ AP `wlan0` (kernel #98); cliente con DHCP/DNS/NAT, vuelve a WiFi normal |
 | Video por hardware (OMX MTK) | ❌ solo software |
 
 Pruebas con QApp (`~/projects/qapp`): los reportes quedan en

@@ -75,6 +75,13 @@ WIFI_DRIVER_MODULE_PATH := /system/lib/modules/wlan_mt6582.ko
 WIFI_DRIVER_MODULE_NAME := wlan_mt6582
 WIFI_DRIVER_MODULE_ARG := ""
 WIFI_FIRMWARE_LOADER := wmt_wifi_loader
+# Soft AP: netd writes the mode to /dev/wmtWifi before and after hostapd.
+# The driver (kernel #98) then registers its AP device as wlan0 and moves
+# the station device to sta0, and back.
+WIFI_DRIVER_FW_PATH_PARAM := "/dev/wmtWifi"
+WIFI_DRIVER_FW_PATH_STA := STA
+WIFI_DRIVER_FW_PATH_AP := AP
+WIFI_DRIVER_FW_PATH_P2P := P2P
 
 # Bluetooth: Bluedroid; libbt-vendor opens the combo through the stock
 # libbluetoothdrv.so.

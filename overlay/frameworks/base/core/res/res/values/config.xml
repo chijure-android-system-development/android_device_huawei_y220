@@ -6,8 +6,9 @@
         <item>"rndis\\d"</item>
     </string-array>
 
-    <!-- Hotspot. wlan_mt6582 names its AP interface ap0. -->
+    <!-- Hotspot. In AP mode wlan_mt6582 registers its AP device as wlan0
+         and moves the station device to sta0 (kernel #98). -->
     <string-array name="config_tether_wifi_regexs" translatable="false">
-        <item>"ap\\d"</item>
+        <item>"wlan\\d"</item>
     </string-array>
 </resources>
