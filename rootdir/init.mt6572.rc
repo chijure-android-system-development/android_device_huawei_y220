@@ -63,11 +63,8 @@ on post-fs-data
     setprop vold.post_fs_data_done 1
 
 on boot
-    # zram swap, as stock init.project.rc (192 MB here, swappiness 100).
-    write /proc/sys/vm/swappiness 100
-    write /sys/block/zram0/disksize 201326592
-    exec /system/xbin/busybox mkswap /dev/block/zram0
-    exec /system/xbin/busybox swapon /dev/block/zram0
+    # zram swap is set up by CM's compcache service (ro.zram.default in
+    # system.prop).
 
     # lowmemorykiller levels are left to ActivityManager (4.2 writes them).
 

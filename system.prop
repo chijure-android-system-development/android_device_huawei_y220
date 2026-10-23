@@ -1,3 +1,8 @@
-# Properties with spaces in the value; PRODUCT_PROPERTY_OVERRIDES splits
-# them at the space.
+# rild.libargs has a space in its value; PRODUCT_PROPERTY_OVERRIDES splits
+# it at the space.
 rild.libargs=-d /dev/ttyC0
+
+# zram: 85% of RAM (~190 MB, the stock Y220 used 192 MB) as compressed
+# swap, applied by CM's handle_compcache. Without this property compcache
+# ran "stop" at boot and switched off the swap.
+ro.zram.default=85

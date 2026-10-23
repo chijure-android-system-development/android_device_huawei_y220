@@ -146,6 +146,14 @@ está en el device tree:
 - **CPU:** `TARGET_ARCH_VARIANT_CPU := cortex-a9`; el GCC 4.6 de 4.2 no
   conoce `cortex-a7`.
 
+## Memoria
+
+219 MB para Linux. El zram (swap comprimido) lo arma el servicio
+`compcache` de CM con `ro.zram.default=85` (`system.prop`): 85 % de la RAM,
+unos 190 MB como el stock (192 MB). Sin esa propiedad `compcache` corría
+`stop` al arrancar y apagaba el swap. Los niveles del lowmemorykiller los
+pone ActivityManager.
+
 ## Entrada, USB y almacenamiento
 
 - **Teclas:** atrás, home y menú son táctiles de hardware: `mtk-tpd-kpd`
