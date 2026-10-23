@@ -82,5 +82,10 @@ BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/huawei/y220/bluetooth
 # Stock camera HAL (camera.mt6572) through CM's camera service.
 USE_CAMERA_STUB := false
 
+# Power-off charging: the LK passes boot_reason=1 (power on by charger)
+# only in charging mode; init then runs "charger" (init.mt6572.rc).
+COMMON_GLOBAL_CFLAGS += -DBOARD_CHARGING_CMDLINE_NAME='"boot_reason"'
+COMMON_GLOBAL_CFLAGS += -DBOARD_CHARGING_CMDLINE_VALUE='"1"'
+
 # RIL: MediaTekRIL (ro.telephony.ril_class) is built into telephony-common.
 BOARD_RIL_CLASS := ../../../device/huawei/y220/ril/telephony/java

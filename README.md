@@ -151,6 +151,15 @@ está en el device tree:
   un formato de color propio de MTK y el `OMXCodec` de CM aborta
   mediaserver en el `CHECK` de `setVideoOutputFormat`. Haría falta parchear
   libstagefright, así que se queda en software.
+- **Carga con el teléfono apagado:** el LK arranca la imagen boot con
+  `boot_reason=1` solo en ese modo (un arranque normal pasa 0 o 4).
+  `BOARD_CHARGING_CMDLINE_NAME/VALUE` (BoardConfig) hacen que el init de CM
+  lo lea del cmdline, monte los filesystems y corra la clase `charger` en
+  vez de `boot`: ni modem ni Android. Ahí corre el `ipod` del stock del
+  Y220 (`init.mt6572.rc`), que dibuja la animación de carga original de
+  Huawei desde la partición logo, arranca Android con pulsación larga de
+  power y pide el servicio `shutdown` al desconectar el cargador. Está en
+  la imagen boot, no en el recovery.
 - **CPU:** `TARGET_ARCH_VARIANT_CPU := cortex-a9`; el GCC 4.6 de 4.2 no
   conoce `cortex-a7`.
 
@@ -227,6 +236,8 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
 | Audio | ✅ parlante y micrófono; llamadas sin confirmar |
 | Acelerómetro, vibración | ✅ |
+| Carga con el teléfono apagado | ✅ animación original de Huawei |
+| Cámara: cuelgue al disparar y salir de la app | ✅ protegido en el envoltorio |
 | Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
 | Llamadas | ❓ fallaron en una prueba sin logs; pendiente |
 | Video por hardware (OMX MTK) | ❌ solo software |

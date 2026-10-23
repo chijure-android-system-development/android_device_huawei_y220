@@ -90,3 +90,18 @@ service pq /system/bin/pq
     user root
     disabled
     oneshot
+
+# Power-off charging. The LK boots this image with boot_reason=1 when the
+# phone is off and a charger is plugged in; BOARD_CHARGING_CMDLINE_* make
+# init mount the filesystems and run "charger" instead of "boot", so the
+# modem and Android stay off. The stock ipod draws the Huawei charging
+# animation from the logo partition, reboots into Android on a long power
+# key press and asks for "shutdown" when the charger is unplugged.
+service ipod /system/bin/logwrapper /system/bin/ipod
+    class charger
+    user root
+    group root
+
+service shutdown /system/bin/reboot -p
+    disabled
+    oneshot

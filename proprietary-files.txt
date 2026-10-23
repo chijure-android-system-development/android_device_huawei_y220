@@ -110,6 +110,10 @@ y330:lib/libmpo.so
 y330:lib/libmpoencoder.so
 y330:lib/libmtkjpeg.so
 
+# Power-off charging animation (logo partition): Y220 stock ipod
+y220:bin/ipod
+y220:lib/libipod.so
+
 # Thermal and display tuning: Y220 board tables
 y220:bin/thermal_manager
 y220:bin/thermald
