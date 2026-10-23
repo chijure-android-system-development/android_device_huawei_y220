@@ -215,7 +215,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Pantalla táctil y teclas atrás/home/menú | ✅ |
 | microSD, USB (adb, almacenamiento) | ✅ |
 | WiFi (WPA2, DHCP, internet) | ✅ con el `wlan_mt6582.ko` arreglado |
-| SIM, red y datos móviles (Claro, EDGE) | ✅ llamadas sin probar |
+| SIM, red, datos móviles (Claro, EDGE) y SMS | ✅ |
 | Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
 | Audio | ✅ parlante y micrófono; llamadas sin confirmar |
 | Acelerómetro, vibración | ✅ |
