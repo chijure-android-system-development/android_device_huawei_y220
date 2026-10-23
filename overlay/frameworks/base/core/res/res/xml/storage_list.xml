@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The microSD is the primary volume, mounted by vold at /storage/sdcard0
+     (configs/vold.fstab). The framework default is /mnt/sdcard, which made
+     MountService drop the card. -->
+<StorageList xmlns:android="http://schemas.android.com/apk/res/android">
+    <storage android:mountPoint="/storage/sdcard0"
+             android:storageDescription="@string/storage_sd_card"
+             android:primary="true"
+             android:removable="true"
+             android:allowMassStorage="true" />
+</StorageList>

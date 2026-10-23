@@ -22,8 +22,6 @@
      Personal Media Players (PMPs), small tablets (7" or less), and similar
      devices.
 -->
-<!-- Y220-U05: handheld_core_hardware.xml without the compass; the phone only
-     has an accelerometer (stock has no compass feature either). -->
 <permissions>
     <feature name="android.hardware.camera" />
     <feature name="android.hardware.location" />
@@ -32,6 +30,8 @@
     <feature name="android.hardware.bluetooth" />
     <feature name="android.hardware.touchscreen" />
     <feature name="android.hardware.microphone" />
+    <feature name="android.hardware.screen.portrait" />
+    <feature name="android.hardware.screen.landscape" />
     <!-- devices with GPS must include android.hardware.location.gps.xml -->
     <!-- devices with an autofocus camera and/or flash must include either
          android.hardware.camera.autofocus.xml or 

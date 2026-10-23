@@ -1,18 +1,3 @@
-# Y220-U05. Stock build.prop does not set ro.sf.lcd_density.
-# 320x480 is 160 dpi; the mdpi CM7 bootanimation matches that.
-qemu.hw.mainkeys=0
-ro.sf.lcd_density=160
-wifi.interface=wlan0
-ro.opengles.version=131072
-rild.libpath=/system/lib/mtk-ril.so
+# Properties with spaces in the value; PRODUCT_PROPERTY_OVERRIDES splits
+# them at the space.
 rild.libargs=-d /dev/ttyC0
-# MediaTekRIL asks mtk-ril to attach GPRS; AOSP never does.
-ro.telephony.ril_class=mediatek
-# MobileDataStateTracker reads net.<iface>.dns1/dns2 of these; mtk-ril uses ccmni0.
-mobiledata.interfaces=ccmni0,rmnet0,eth0,gprs,ppp0
-# mtkbt reads the combo chip id from here (stock init.rc sets it). Without
-# it mtk_bt_enable fails with "Unknown combo chip id".
-persist.mtk.wcn.combo.chipid=0x6572
-# Unset, Dalvik falls back to 16m. 224 MB of RAM at 320x480, like the Y210.
-# Stock sets 128m/96m for its MTK Dalvik; that is too much for CM7 here.
-dalvik.vm.heapsize=24m

@@ -1,0 +1,6 @@
+# Capacitive keys under the panel (msg2133). The kernel sends scan code 102
+# for home, which Generic.kl maps to MOVE_HOME (a keyboard's Home key, the
+# "cursor" on screen), not to HOME.
+key 102   HOME              VIRTUAL
+key 139   MENU              VIRTUAL
+key 158   BACK              VIRTUAL

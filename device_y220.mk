@@ -1,68 +1,106 @@
-$(call inherit-product, $(SRC_TARGET_DIR)/product/languages_full.mk)
 $(call inherit-product-if-exists, vendor/huawei/y220/y220-vendor.mk)
 
-# MTK preloader is not a fastboot bootloader. Drop that reboot choice.
 DEVICE_PACKAGE_OVERLAYS += device/huawei/y220/overlay
 
-# MediaTekRIL goes into framework.jar. Relative to frameworks/base.
-FRAMEWORKS_BASE_SUBDIRS += ../../device/huawei/y220/ril/telephony/java
-
-ifeq ($(TARGET_PREBUILT_KERNEL),)
-    LOCAL_KERNEL := device/huawei/y220/kernel
-else
-    LOCAL_KERNEL := $(TARGET_PREBUILT_KERNEL)
-endif
-
 PRODUCT_COPY_FILES += \
-    $(LOCAL_KERNEL):kernel
+    device/huawei/y220/kernel:kernel
 
+# Boot
 PRODUCT_COPY_FILES += \
-    device/huawei/y220/init.rc:root/init.rc \
-    device/huawei/y220/ueventd.mt6572.rc:root/ueventd.mt6572.rc \
-    device/huawei/y220/y220-wipe-system.sh:system/bin/y220-wipe-system.sh \
-    device/huawei/y220/init.d/06modem:system/etc/init.d/06modem \
-    device/huawei/y220/init.d/07wmt:system/etc/init.d/07wmt \
-    device/huawei/y220/init.d/08zram:system/etc/init.d/08zram \
-    device/huawei/y220/init.d/09thermal:system/etc/init.d/09thermal \
-    device/huawei/y220/init.d/10vcodec:system/etc/init.d/10vcodec \
-    device/huawei/y220/init.local.rc:system/etc/init.local.rc \
-    device/huawei/y220/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \
-    device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh \
-    device/huawei/y220/apns-conf.xml:system/etc/apns-conf.xml \
-    device/huawei/y220/gps.conf:system/etc/gps.conf \
-    device/huawei/y220/FMRadio/com.mediatek.fmradio.xml:system/etc/permissions/com.mediatek.fmradio.xml \
-    device/huawei/y220/egl.cfg:system/lib/egl/egl.cfg \
-    device/huawei/y220/keylayout/ACCDET.kl:system/usr/keylayout/ACCDET.kl
+    device/huawei/y220/rootdir/init.rc:root/init.rc \
+    device/huawei/y220/rootdir/init.mt6572.rc:root/init.mt6572.rc \
+    device/huawei/y220/rootdir/init.mt6572.usb.rc:root/init.mt6572.usb.rc \
+    device/huawei/y220/rootdir/init.modem.rc:root/init.modem.rc \
+    device/huawei/y220/rootdir/init.connectivity.rc:root/init.connectivity.rc \
+    device/huawei/y220/rootdir/ueventd.mt6572.rc:root/ueventd.mt6572.rc \
+    device/huawei/y220/rootdir/init.mtk-nodes.sh:system/etc/init.mtk-nodes.sh
 
+PRODUCT_PACKAGES += \
+    ubiattach_y220
+
+# Symbols the MTK blobs expect from MTK's liblog, libmedia, libui and
+# libcamera_client (LD_PRELOAD from init.mt6572.rc).
+PRODUCT_PACKAGES += \
+    libmtk_symbols
+
+# Graphics, audio, lights
+PRODUCT_PACKAGES += \
+    audio.primary.mt6572 \
+    audio_policy.default \
+    audio.a2dp.default \
+    audio.usb.default \
+    audio.r_submix.default \
+    lights.y220
+
+# Wi-Fi
+PRODUCT_COPY_FILES += \
+    device/huawei/y220/configs/wpa_supplicant.conf:system/etc/wifi/wpa_supplicant.conf \
+    device/huawei/y220/wmt-wifi-on.sh:system/etc/wifi/wmt-wifi-on.sh
+
+# Bluetooth
+PRODUCT_PACKAGES += \
+    libbt-vendor
+
+# Telephony: the stock rild comes from vendor (proprietary-files.txt).
+PRODUCT_PACKAGES += \
+    Mms
+
+# Configs
+PRODUCT_COPY_FILES += \
+    device/huawei/y220/configs/audio_policy.conf:system/etc/audio_policy.conf \
+    device/huawei/y220/configs/media_codecs.xml:system/etc/media_codecs.xml \
+    device/huawei/y220/configs/vold.fstab:system/etc/vold.fstab \
+    device/huawei/y220/configs/gps.conf:system/etc/gps.conf \
+    device/huawei/y220/keylayout/ACCDET.kl:system/usr/keylayout/ACCDET.kl \
+    device/huawei/y220/keylayout/mtk-kpd.kl:system/usr/keylayout/mtk-kpd.kl \
+    device/huawei/y220/keylayout/mtk-tpd-kpd.kl:system/usr/keylayout/mtk-tpd-kpd.kl \
+    device/huawei/y220/keylayout/mtk-tpd.kl:system/usr/keylayout/mtk-tpd.kl \
+    device/huawei/y220/idc/mtk-tpd.idc:system/usr/idc/mtk-tpd.idc
+
+# Features: no GPS, autofocus or compass (handheld_core_hardware without
+# the compass).
 PRODUCT_COPY_FILES += \
     device/huawei/y220/permissions/handheld_core_hardware.xml:system/etc/permissions/handheld_core_hardware.xml \
-    frameworks/base/data/etc/android.hardware.telephony.gsm.xml:system/etc/permissions/android.hardware.telephony.gsm.xml \
-    frameworks/base/data/etc/android.hardware.wifi.xml:system/etc/permissions/android.hardware.wifi.xml \
-    frameworks/base/data/etc/android.hardware.touchscreen.multitouch.distinct.xml:system/etc/permissions/android.hardware.touchscreen.multitouch.distinct.xml
+    frameworks/native/data/etc/android.hardware.camera.xml:system/etc/permissions/android.hardware.camera.xml \
+    frameworks/native/data/etc/android.hardware.telephony.gsm.xml:system/etc/permissions/android.hardware.telephony.gsm.xml \
+    frameworks/native/data/etc/android.hardware.wifi.xml:system/etc/permissions/android.hardware.wifi.xml \
+    frameworks/native/data/etc/android.hardware.touchscreen.multitouch.distinct.xml:system/etc/permissions/android.hardware.touchscreen.multitouch.distinct.xml \
+    frameworks/native/data/etc/android.hardware.usb.accessory.xml:system/etc/permissions/android.hardware.usb.accessory.xml
 
 PRODUCT_PROPERTY_OVERRIDES += \
-    qemu.hw.mainkeys=0
+    ro.sf.lcd_density=160 \
+    wifi.interface=wlan0 \
+    ro.opengles.version=131072 \
+    rild.libpath=/system/lib/mtk-ril.so \
+    ro.telephony.ril_class=MediaTekRIL \
+    mobiledata.interfaces=ccmni0,rmnet0,eth0,gprs,ppp0 \
+    persist.mtk.wcn.combo.chipid=0x6572 \
+    ro.mediatek.platform=MT6572 \
+    ro.mediatek.version.release=ALPS.JB3.MP.V1.37 \
+    persist.gemini.sim_num=1 \
+    ro.mediatek.gemini_support=false \
+    dalvik.vm.heapstartsize=5m \
+    dalvik.vm.heapgrowthlimit=32m \
+    dalvik.vm.heapsize=64m
 
-# ro.product.board is y220, so hw_get_module loads lights.y220.so.
-# Without it LightsService never writes lcd-backlight and the slider does nothing.
+# HVGA (320x480, mdpi) phone.
+PRODUCT_AAPT_CONFIG := normal mdpi
+PRODUCT_AAPT_PREF_CONFIG := mdpi
+
+# Same base as the Y210: telephony.mk would add CM's rild, which would
+# install over the stock MTK one.
+$(call inherit-product, build/target/product/generic_no_telephony.mk)
+
 PRODUCT_PACKAGES += \
-    lights.y220 \
-    libaudio \
-    libaudiopolicy \
-    mediaserver \
-    libbt_mtk_gap \
-    libbt_mtk_opp \
-    libbt_mtk_a2dp \
-    libmtk_shim \
-    hostapd \
-    FMRadio
-
-# Same place as the Y210 tree. This is the AOSP base (Settings, Phone,
-# SystemUI, framework jars). Without it the zip only has the CM extras.
-$(call inherit-product, build/target/product/full_base.mk)
-
-PRODUCT_NAME := device_y220
-PRODUCT_DEVICE := y220
-PRODUCT_BRAND := HUAWEI
-PRODUCT_MODEL := Y220-U05
-PRODUCT_MANUFACTURER := HUAWEI
+    Phone \
+    Settings \
+    LatinIME \
+    Calendar \
+    DeskClock \
+    Email \
+    Exchange \
+    Camera \
+    Bluetooth \
+    SoundRecorder \
+    SystemUI \
+    Trebuchet

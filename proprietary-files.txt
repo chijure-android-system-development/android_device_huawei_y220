@@ -1,287 +1,116 @@
-# Y220-U05 C482B206SP05. Extracted from the stock system dump.
-# Google apps and AOSP odex are not in this list.
-# lib/modules keeps only stock modules the kernel tree does not build;
-# the rest come from device/huawei/y220/prebuilt/modules.
+# Blobs for the Y220-U05 on CM10.1, from two stock systems:
+#
+#   y220: the phone's own GB stock (C482B206SP05), as extracted into the
+#         CM7 vendor tree (vendor/huawei/y220 branch master).
+#   y330: Huawei Y330-U01 V100R001C00B121, Android 4.2.2, MT6572 ALPS.JB3.
+#         Same SoC, same Mali r3p2-01rel0 and kernel 3.4.5 as the Y220.
+#
+# Format: <source>:<path in that system>[:<path in /system>]
+# extract-files.py copies them to vendor/huawei/y220/proprietary and writes
+# y220-vendor-blobs.mk.
+#
+# Rule for picking a source: the 4.2 userspace comes from the Y330. What
+# talks to the Y220's own modem or carries its board tuning comes from the
+# Y220: modem image, ccci daemons, combo firmware, thermal tables.
+#
+# NVRAM: the AP side (nvram_daemon, libnvram, libcustom_nvram) is the
+# Y330's. Its audio and BT blobs pass LIDs compiled from the Y330 table,
+# which has two more common entries than the Y220's, so every audio LID is
+# off by two against the Y220 libcustom_nvram. The modem side (ccci_fsd,
+# IMEI) stays on the Y220 binaries.
 
-# bin
-bin/6620_launcher
-bin/6620_wmt_concurrency
-bin/6620_wmt_lpbk
-bin/aee
-bin/aee_aed
-bin/aee_core_forwarder
-bin/aee_dumpstate
-bin/akmd8963
-bin/akmd8975
-bin/ami304d
-bin/boot_logo_updater
-bin/btconfig
-bin/btlogmask
-bin/ccci_fsd
-bin/ccci_mdinit
-bin/dm_agent_binder
-bin/dmlog
-bin/dualmdlogger
-bin/factory
-bin/fsck_msdos_mtk
-bin/geomagneticd
-bin/gsm0710muxd
-bin/hald
-bin/hdc
-bin/hqftm
-bin/ipod
-bin/md_minilog_util
-bin/mdlogger
-bin/memorydumper
-bin/memsicd
-bin/mobile_log_d
-bin/msensord
-bin/mtdinfo
-bin/mtk_agpsd
-bin/mtk_ifconfig
-bin/mtk_netstat
-bin/mtk_route
-bin/mtkbt
-bin/muxreport
-bin/mvg_app
-bin/netdiag
-bin/nvram_agent_binder
-bin/nvram_daemon
-bin/nvram_hqfactory
-bin/orientationd
-bin/p2p_cli
-bin/p2p_supplicant
-bin/pq
-bin/rild
-bin/sbchk
-bin/sn
-bin/thermal
-bin/thermal_manager
-bin/thermald
-bin/ubiattach
-bin/ubidetach
-bin/ubiformat
-bin/ubimkvol
-bin/ubinfo
-bin/ubirmvol
-bin/ubiupdatevol
-bin/wlan_loader
-bin/xlog
+# Mali-400 r3p2-01rel0 and gralloc (ION)
+y330:lib/libMali.so
+y330:lib/egl/libEGL_mali.so
+y330:lib/egl/libGLESv1_CM_mali.so
+y330:lib/egl/libGLESv2_mali.so
+y330:lib/hw/gralloc.mt6572.so
+y330:lib/libion.so
+y330:lib/libm4u.so
+y330:lib/libdpframework.so
+y330:lib/libaed.so
 
-# etc
-etc/.tp/.ht120.mtc
-etc/.tp/thermal.conf
-etc/.tp/thermal.off.conf
-etc/firmware/S_ANDRO_SFL.ini
-etc/firmware/WIFI_RAM_CODE_MT6582
-etc/firmware/WMT_SOC.cfg
-etc/firmware/catcher_filter.bin
-etc/firmware/modem.img
-etc/firmware/mt6572_82_patch_e1_0_hdr.bin
-etc/firmware/mt6572_82_patch_e1_1_hdr.bin
-etc/firmware/mt6627/mt6627_fm_v1_coeff.bin
-etc/firmware/mt6627/mt6627_fm_v1_patch.bin
-etc/firmware/mt6627/mt6627_fm_v2_coeff.bin
-etc/fmr/mt6627_fm_cust.cfg
-etc/mddb/BPLGUInfoCustomAppSrcP_MT6572_S00_MOLY_WR8_W1315_MD_WG_MP_V4_P9
-etc/media_codecs.xml
-etc/mtk_omx_core.cfg
-etc/mtklog-config.prop
-etc/ril/oper.lis
-etc/vold.fstab.fat.nand
-etc/vold.fstab.nand
-etc/wifi/p2p.conf
+# Modem: Y220 modem and ccci, Y330 RIL
+y220:etc/firmware/modem.img
+y220:etc/firmware/catcher_filter.bin
+y220:etc/mddb/BPLGUInfoCustomAppSrcP_MT6572_S00_MOLY_WR8_W1315_MD_WG_MP_V4_P9
+y220:bin/ccci_fsd
+y220:bin/ccci_mdinit
+y330:bin/rild
+y330:lib/librilmtk.so
+y330:lib/mtk-ril.so
+y330:bin/gsm0710muxd
+y330:bin/muxreport
+y330:etc/ril/oper.lis
 
-# lib
-lib/egl/libEGL_mali.so
-lib/egl/libGLESv1_CM_mali.so
-lib/egl/libGLESv2_mali.so
-lib/hw/camera.default.so
-lib/hw/gralloc.mt6572.so
-lib/hw/sensors.default.so
-lib/libGdmaScalerPipe.so
-lib/libHWColorPen.so
-lib/libJniVideoSurface.so
-lib/libJpgDecPipe.so
-lib/libJpgEncPipe.so
-lib/libMali.so
-lib/libMtkOmxAMRNBDec.so
-lib/libMtkOmxAMRWBDec.so
-lib/libMtkOmxAacDec.so
-lib/libMtkOmxAacEnc.so
-lib/libMtkOmxAmrEnc.so
-lib/libMtkOmxApeDec.so
-lib/libMtkOmxAwbEnc.so
-lib/libMtkOmxCookDec.so
-lib/libMtkOmxCore.so
-lib/libMtkOmxG711Dec.so
-lib/libMtkOmxMp3Dec.so
-lib/libMtkOmxVdec.so
-lib/libMtkOmxVenc.so
-lib/libMtkOmxVorbisDec.so
-lib/libMtkOmxVorbisEnc.so
-lib/libSwJpgCodec.so
-lib/libUMP.so
-lib/libWVphoneAPI.so
-lib/libaacdec_mtk.so
-lib/libacdk.so
-lib/libaed.so
-lib/libagpssupl.so
-lib/libamr_wrap.so
-lib/libamrvt.so
-lib/libapedec_wrap.so
-lib/libappc.so
-lib/libaudiocompensationfilter.so
-lib/libaudiodcrflt.so
-lib/libaudioeffectparam.so
-lib/libaudiosetting.so
-lib/libawb_wrap.so
-lib/libbessound_mtk.so
-lib/libblisrc.so
-lib/libbluetooth_mtk.so
-lib/libbluetooth_relayer.so
-lib/libbluetoothdrv.so
-lib/libbluetoothem_mtk.so
-lib/libbtcust.so
-lib/libbtcusttable.so
-lib/libbtem.so
-lib/libbtpcm.so
-lib/libbtsniff.so
-lib/libbwc.so
-lib/libc_malloc_debug_mtk.so
-lib/libcam.camadapter.so
-lib/libcam.campipe.so
-lib/libcam.camshot.so
-lib/libcam.client.so
-lib/libcam.paramsmgr.so
-lib/libcam.utils.so
-lib/libcam_camera_exif.so
-lib/libcamalgo.so
-lib/libcamdrv.so
-lib/libcamera_client.so
-lib/libcamera_metadata.so
-lib/libcameracustom.so
-lib/libcameraservice.so
-lib/libcok.so
-lib/libcustom_nvram.so
-lib/libcvsd_mtk.so
-lib/libdcfdecoderjni.so
-lib/libdeltat.so
-lib/libdpframework.so
-lib/libdrmmtkutil.so
-lib/libem_chip_support_jni.so
-lib/libem_dsense_jni.so
-lib/libem_gpio_jni.so
-lib/libem_jni.so
-lib/libem_modem_jni.so
-lib/libembttest_jni.so
-lib/libemwifi_jni.so
-lib/libextavrcp.so
-lib/libextavrcp_jni.so
-lib/libextbip.so
-lib/libextbip_jni.so
-lib/libextbpp.so
-lib/libextbpp_jni.so
-lib/libextdun_jni.so
-lib/libextftp.so
-lib/libextftp_jni.so
-lib/libexthid.so
-lib/libexthid_jni.so
-lib/libextjsr82.so
-lib/libextmap.so
-lib/libextmap_jni.so
-lib/libextopp.so
-lib/libextopp_jni.so
-lib/libextpan_jni.so
-lib/libextpbap.so
-lib/libextpbap_jni.so
-lib/libextsimap.so
-lib/libextsimap_jni.so
-lib/libextsys.so
-lib/libextsys_jni.so
-lib/libfeatureio.so
-lib/libfile_op.so
-lib/libfmcust.so
-lib/libfmjni.so
-lib/libfmmt6620.so
-lib/libfmmt6627.so
-lib/libfmmt6628.so
-lib/libft.so
-lib/libgcomm_jni.so
-lib/libh264dec_customize.so
-lib/libh264dec_xa.ca7.so
-lib/libh264dec_xb.ca7.so
-lib/libh264enc_sa.ca7.so
-lib/libh264enc_sb.ca7.so
-lib/libhandwriting_engine.so
-lib/libheaacdec_mtk.so
-lib/libhwm.so
-lib/libimageio.so
-lib/libinput_engine.so
-lib/libinputcore-2.so
-lib/libion.so
-lib/libipod.so
-lib/libjni_hwime.so
-lib/libjni_pinyinime.so
-lib/libm4u.so
-lib/libmatv_cust.so
-lib/libmediatek_drvb.so
-lib/libmediatek_exceptionlog.so
-lib/libmemorydumper.so
-lib/libmhalImageCodec.so
-lib/libmmprofile.so
-lib/libmp3_wrap.so
-lib/libmp4dec_customize.so
-lib/libmp4dec_sa.ca7.so
-lib/libmp4dec_sb.ca7.so
-lib/libmp4enc_xa.ca7.so
-lib/libmp4enc_xb.ca7.so
-lib/libmpo.so
-lib/libmpodecoder.so
-lib/libmpoencoder.so
-lib/libmpojni.so
-lib/libmtk_dictionary.so
-lib/libmtk_drvb.so
-lib/libmtk_telephony_log.so
-lib/libmtk_vt_client.so
-lib/libmtk_vt_em.so
-lib/libmtk_vt_service.so
-lib/libmtk_vt_swip.so
-lib/libmtk_vt_utils.so
-lib/libmtka2dp.so
-lib/libmtkbtextadp.so
-lib/libmtkbtextadpa2dp.so
-lib/libmtkbtextpan.so
-lib/libmtkbtextspp.so
-lib/libmtkhdmi_jni.so
-lib/libmtkplayer.so
-lib/libmtkse.so
-lib/libmtktvout_jni.so
-lib/libmtktvout_vlw_jni.so
-lib/libmtktvout_vw_jni.so
-lib/libnvram.so
-lib/libnvram_daemon_callback.so
-lib/libp2p_client.so
-lib/libpalsecurity.so
-lib/libpalwlan_mtk.so
-lib/libperfservice.so
-lib/libpppbtdun.so
-lib/librilmtk.so
-lib/libsched.so
-lib/libsec.so
-lib/libspeech_enh_lib.so
-lib/libssladp.so
-lib/libstagefright_pmemutil.so
-lib/libstagefrighthw.so
-lib/libtvoutjni.so
-lib/libtvoutpattern.so
-lib/libutilrilmtk.so
-lib/libvcodec_oal.so
-lib/libvcodec_utility.so
-lib/libvcodecdrv.so
-lib/libvorbisenc_wrap.so
-lib/libvorbisidec_mtk.so
-lib/libvp8dec_xa.ca7.so
-lib/libvtmal.so
-lib/modules/p2p.ko
-lib/mtk-ril.so
+# NVRAM (AP side)
+y330:bin/nvram_daemon
+y330:lib/libnvram.so
+y330:lib/libcustom_nvram.so
+y330:lib/libnvram_daemon_callback.so
+y330:lib/libfile_op.so
+y330:lib/librsa_hw.so
+y330:lib/libhwm.so
+
+# Combo chip (WMT, WiFi, BT, FM): Y220 firmware and launcher
+y220:bin/6620_launcher
+y220:etc/firmware/WMT_SOC.cfg
+y220:etc/firmware/WIFI_RAM_CODE_MT6582
+y220:etc/firmware/mt6572_82_patch_e1_0_hdr.bin
+y220:etc/firmware/mt6572_82_patch_e1_1_hdr.bin
+y220:etc/firmware/S_ANDRO_SFL.ini
+y220:etc/firmware/mt6627/mt6627_fm_v1_coeff.bin
+y220:etc/firmware/mt6627/mt6627_fm_v1_patch.bin
+y220:etc/firmware/mt6627/mt6627_fm_v2_coeff.bin
+y220:etc/fmr/mt6627_fm_cust.cfg
+
+# Bluetooth: Bluedroid over libbt-vendor (device tree) and the MTK driver lib
+y330:lib/libbluetoothdrv.so
+y330:lib/libbluetooth_mtk.so
+
+# Audio: the MTK HAL keeps its stock name; libaudio_wrapper
+# (audio.primary.mt6572) loads it, since its module id is "libaudio". The
+# policy is CM's audio_policy.default: MTK's audio_policy blob has one more
+# entry in audio_policy_service_ops before load_hw_module, so through CM's
+# AudioPolicyService it opened no module and the phone had no output.
+y330:lib/libaudio.primary.default.so
+y330:lib/libaudiocompensationfilter.so
+y330:lib/libaudiocustparam.so
+y330:lib/libaudiosetting.so
+y330:lib/libbessound_mtk.so
+y330:lib/libblisrc.so
+y330:lib/libcvsd_mtk.so
+y330:lib/libmtk_drvb.so
+y330:lib/libspeech_enh_lib.so
+
+# Sensors (hwmsensor)
+y330:lib/hw/sensors.default.so:lib/hw/sensors.mt6572.so
+
+# Camera
+y330:lib/hw/camera.default.so:lib/hw/camera.mt6572.so
+y330:lib/libcam.camadapter.so
+y330:lib/libcam.campipe.so
+y330:lib/libcam.camshot.so
+y330:lib/libcam.client.so
+y330:lib/libcam.paramsmgr.so
+y330:lib/libcam.utils.so
+y330:lib/libcam_camera_exif.so
+y330:lib/libcamalgo.so
+y330:lib/libcamdrv.so
+y330:lib/libcameracustom.so
+y330:lib/libfeatureio.so
+y330:lib/libimageio.so
+y330:lib/libJpgEncPipe.so
+y330:lib/libbwc.so
+y330:lib/libmatv_cust.so
+y330:lib/libmpo.so
+y330:lib/libmpoencoder.so
+y330:lib/libmtkjpeg.so
+
+# Thermal and display tuning: Y220 board tables
+y220:bin/thermal_manager
+y220:bin/thermald
+y220:bin/pq
+y220:etc/.tp/thermal.conf
+y220:etc/.tp/thermal.off.conf
+y220:etc/.tp/.ht120.mtc

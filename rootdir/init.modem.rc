@@ -1,0 +1,54 @@
+# Modem (stock init.modem.rc and the CM7 port). 9996 is ccci and 9997 is
+# nvram in MTK's android_filesystem_config.h; CM has no names for them.
+#
+# Order: nvram_daemon prepares /data/nvram and sets nvram_init=Ready;
+# ccci_mdinit waits for it, boots the modem and starts gsm0710muxd, which
+# makes the /dev/radio ptys that mtk-ril.so opens. ril-daemon (the stock
+# MTK rild and its sockets) is in this tree's init.rc.
+
+on post-fs-data
+    mkdir /data/nvram 2770 root 9997
+    mkdir /data/nvram/md 0770 root 9997
+
+    # Nodes and owners: init.mtk-nodes.sh (from init.connectivity.rc).
+    insmod /system/lib/modules/sec.ko
+    insmod /system/lib/modules/devapc.ko
+    # ccci_mdinit opens /dev/devmap.
+    insmod /system/lib/modules/devinfo.ko
+    insmod /system/lib/modules/ccci_plat.ko
+    insmod /system/lib/modules/ccci.ko
+
+    mkdir /dev/radio 0770 radio radio
+
+# nvram_daemon sets nvram_init; CM only lets root set a property with no
+# prefix in property_perms.
+service nvram_daemon /system/bin/nvram_daemon
+    class core
+    user root
+    group 9997 system
+    oneshot
+
+service ccci_fsd /system/bin/ccci_fsd 0
+    class core
+    user 9996
+    group 9997 9996 system
+    oneshot
+
+service ccci_mdinit /system/bin/ccci_mdinit 0
+    class core
+    user system
+    group 9996 system
+    oneshot
+
+service gsm0710muxd /system/bin/gsm0710muxd -s /dev/ttyC0 -f 512 -n 8 -m basic
+    class core
+    user root
+    group radio cache inet misc 9996
+    disabled
+
+service muxreport-daemon /system/bin/muxreport
+    class core
+    user radio
+    group radio cache inet misc 9996
+    disabled
+    oneshot

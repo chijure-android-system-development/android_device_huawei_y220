@@ -1,9 +1,0 @@
-#!/system/bin/sh
-# MTK video codec driver, as in stock init.charging.rc. libvcodecdrv in
-# mediaserver opens /dev/Vcodec; CM7 ueventd does not know it. Stock is
-# system:media, but there mediaserver runs as root: CM7 runs it as user
-# media with gid system, so media owns the node.
-insmod /system/lib/modules/vcodec_kernel_driver.ko
-[ -c /dev/Vcodec ] || mknod /dev/Vcodec c 160 0
-chown media:system /dev/Vcodec
-chmod 660 /dev/Vcodec

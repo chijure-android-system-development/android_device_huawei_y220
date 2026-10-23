@@ -23,31 +23,40 @@ import android.os.Message;
 import android.os.Parcel;
 
 /**
- * RIL for the MediaTek mtk-ril.so on the Y220-U05 (MT6572).
+ * RIL for the MediaTek mtk-ril.so of the Y330-U01 4.2.2 (MT6572), which
+ * the Y220-U05 runs on CM10.1.
  *
- * Mobile data needs three things the AOSP framework does not do:
- * - The modem boots with GPRS connect type "when needed" (AT+EGTYPE=0) and
- *   does not attach. The stock MediaTek framework sends
- *   RIL_REQUEST_SET_GPRS_CONNECT_TYPE; ask for "always" when the radio
- *   comes on, like the MediaTekRIL of later CM trees.
- * - +CGREG comes as an MTK URC that AOSP drops.
- * - SETUP_DATA_CALL needs an extra cid argument.
+ * What the AOSP framework does not do with this RIL:
+ * - Data: the modem boots with GPRS connect type "when needed" and does
+ *   not attach; ask for "always" when the radio comes on. SETUP_DATA_CALL
+ *   needs an 8th string, the PDP cid.
+ * - Incoming calls: mtk-ril announces each one with
+ *   UNSOL_INCOMING_CALL_INDICATION and holds it until the framework allows
+ *   it with SET_CALL_INDICATION. Without that the phone never rings.
+ * - Call progress (+ECPI), the PS registration state and SIM hot plug come
+ *   as MTK URCs; pass them on as the AOSP state changes that make the
+ *   trackers poll.
  *
- * mtk-ril sets net.ccmni*.dns1/dns2/gw itself (init lets radio write
- * net.ccmni*), and mobiledata.interfaces in system.prop names ccmni0.
+ * The MTK request and URC numbers are the ones in the Y330 librilmtk.so
+ * (its URC table runs 3000..3029). The GB mtk-ril of the Y220 numbered
+ * the PS state URC 3020; this one uses 3022.
  *
  * {@hide}
  */
 public class MediaTekRIL extends RIL implements CommandsInterface {
-    /* RIL_REQUEST_MTK_BASE (2000) + 16, from the MT6572 ril.h. */
-    static final int RIL_REQUEST_SET_GPRS_CONNECT_TYPE = 2016;
-    /*
-     * mtk-ril reports +CGREG with this. The stock librilmtk.so sends 3020
-     * (seen in the RILC hex dump); later MTK ril.h files put it at 3022.
-     */
-    static final int RIL_UNSOL_RESPONSE_PS_NETWORK_STATE_CHANGED = 3020;
-    /* +ECPI call progress (strings), RIL_UNSOL_MTK_BASE (3000) + 4. */
-    static final int RIL_UNSOL_CALL_PROGRESS_INFO = 3004;
+    static final int RIL_REQUEST_MTK_BASE = 2000;
+    static final int RIL_REQUEST_SET_GPRS_CONNECT_TYPE = RIL_REQUEST_MTK_BASE + 16;
+    static final int RIL_REQUEST_SET_GPRS_TRANSFER_TYPE = RIL_REQUEST_MTK_BASE + 17;
+    static final int RIL_REQUEST_SET_CALL_INDICATION = RIL_REQUEST_MTK_BASE + 36;
+
+    static final int RIL_UNSOL_MTK_BASE = 3000;
+    static final int RIL_UNSOL_CALL_PROGRESS_INFO = RIL_UNSOL_MTK_BASE + 4;
+    static final int RIL_UNSOL_SIM_INSERTED_STATUS = RIL_UNSOL_MTK_BASE + 7;
+    static final int RIL_UNSOL_INCOMING_CALL_INDICATION = RIL_UNSOL_MTK_BASE + 14;
+    static final int RIL_UNSOL_SIM_MISSING = RIL_UNSOL_MTK_BASE + 15;
+    static final int RIL_UNSOL_RESPONSE_PS_NETWORK_STATE_CHANGED = RIL_UNSOL_MTK_BASE + 22;
+    static final int RIL_UNSOL_SIM_PLUG_OUT = RIL_UNSOL_MTK_BASE + 27;
+    static final int RIL_UNSOL_SIM_PLUG_IN = RIL_UNSOL_MTK_BASE + 28;
 
     public MediaTekRIL(Context context, int networkMode, int cdmaSubscription) {
         super(context, networkMode, cdmaSubscription);
@@ -60,14 +69,14 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
         super.setRadioState(newState);
 
         if (!wasOn && newState.isOn()) {
-            setGprsConnectType(1);
+            setGprsType(RIL_REQUEST_SET_GPRS_TRANSFER_TYPE, 1);
+            setGprsType(RIL_REQUEST_SET_GPRS_CONNECT_TYPE, 1);
         }
     }
 
     /*
-     * mtk-ril wants an 8th string, the PDP cid (1-3), and fails the request
-     * without sending any AT command if it is missing. GB brings up one
-     * data connection at a time, so cid 1 is enough.
+     * mtk-ril fails the request without sending any AT command if the cid
+     * is missing. One data connection at a time, so cid 1.
      */
     @Override
     public void setupDataCall(String radioTechnology, String profile, String apn,
@@ -94,41 +103,79 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
         send(rr);
     }
 
-    /*
-     * AOSP does not know the MTK PS state URC and would never poll the
-     * GPRS state again after the attach. Pass it on as the plain network
-     * state change, which makes the service state tracker poll.
-     *
-     * mtk-ril reports call progress (alerting, connected, released) only
-     * as +ECPI and never sends CALL_STATE_CHANGED, so the call tracker
-     * keeps the call DIALING and the in-call mute and dialpad buttons stay
-     * off. Pass +ECPI on as the call state change, which makes it poll.
-     */
     @Override
     protected void processUnsolicited(Parcel p) {
         int dataPosition = p.dataPosition();
         int response = p.readInt();
+        int replacement;
 
-        if (response == RIL_UNSOL_RESPONSE_PS_NETWORK_STATE_CHANGED) {
-            p.setDataPosition(dataPosition);
-            p.writeInt(RIL_UNSOL_RESPONSE_NETWORK_STATE_CHANGED);
-        } else if (response == RIL_UNSOL_CALL_PROGRESS_INFO) {
-            p.setDataPosition(dataPosition);
-            p.writeInt(RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED);
+        switch (response) {
+            case RIL_UNSOL_CALL_PROGRESS_INFO:
+                replacement = RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED;
+                break;
+            case RIL_UNSOL_INCOMING_CALL_INDICATION:
+                allowIncomingCall(p.readStringArray());
+                replacement = RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED;
+                break;
+            case RIL_UNSOL_RESPONSE_PS_NETWORK_STATE_CHANGED:
+                replacement = RIL_UNSOL_RESPONSE_VOICE_NETWORK_STATE_CHANGED;
+                break;
+            case RIL_UNSOL_SIM_INSERTED_STATUS:
+            case RIL_UNSOL_SIM_MISSING:
+            case RIL_UNSOL_SIM_PLUG_OUT:
+            case RIL_UNSOL_SIM_PLUG_IN:
+                replacement = RIL_UNSOL_RESPONSE_SIM_STATUS_CHANGED;
+                break;
+            default:
+                if (response >= RIL_UNSOL_MTK_BASE) {
+                    /* The rest of the MTK URCs have no AOSP counterpart. */
+                    if (RILJ_LOGD) riljLog("[UNSL]< MTK " + response + " ignored");
+                    return;
+                }
+                p.setDataPosition(dataPosition);
+                super.processUnsolicited(p);
+                return;
         }
-        p.setDataPosition(dataPosition);
 
+        /* Hand the AOSP code on; its handlers read no payload. */
+        p.setDataPosition(dataPosition);
+        p.writeInt(replacement);
+        p.setDataPosition(dataPosition);
         super.processUnsolicited(p);
     }
 
-    /* 1 attaches now and stays attached; 0 attaches only when needed. */
-    private void setGprsConnectType(int type) {
-        RILRequest rr = RILRequest.obtain(RIL_REQUEST_SET_GPRS_CONNECT_TYPE, null);
+    /* +EAIC: call id, number, type, call mode, sequence number. */
+    private void allowIncomingCall(String[] info) {
+        if (info == null || info.length < 5) {
+            riljLog("INCOMING_CALL_INDICATION without call id and sequence");
+            return;
+        }
+
+        RILRequest rr = RILRequest.obtain(RIL_REQUEST_SET_CALL_INDICATION, null);
+        int callId = Integer.parseInt(info[0]);
+        int seqNumber = Integer.parseInt(info[4]);
+
+        /* Mode 0 allows the call. */
+        rr.mp.writeInt(3);
+        rr.mp.writeInt(0);
+        rr.mp.writeInt(callId);
+        rr.mp.writeInt(seqNumber);
+
+        if (RILJ_LOGD) riljLog(rr.serialString() + "> SET_CALL_INDICATION allow "
+                + callId + " " + seqNumber);
+
+        send(rr);
+    }
+
+    /* Connect type 1 attaches now and stays attached; transfer type 1
+     * prefers data over calls. */
+    private void setGprsType(int request, int type) {
+        RILRequest rr = RILRequest.obtain(request, null);
 
         rr.mp.writeInt(1);
         rr.mp.writeInt(type);
 
-        if (RILJ_LOGD) riljLog(rr.serialString() + "> SET_GPRS_CONNECT_TYPE " + type);
+        if (RILJ_LOGD) riljLog(rr.serialString() + "> MTK " + request + " " + type);
 
         send(rr);
     }

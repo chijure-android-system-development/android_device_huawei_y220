@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+#
+# OTA script for the Y220-U05. It runs build/tools/releasetools/
+# ota_from_target_files with three changes for this phone:
+#
+# - /system, /data and /cache are UBIFS on NAND (recovery.fstab says
+#   "ubifs"). TWRP has the UBI volumes attached, so the updater mounts the
+#   ubi device with the mount() syscall. "Formatting" deletes the files and
+#   keeps the volume: TWRP owns the UBI layout.
+# - boot is written with TWRP's flash_image. The image carries the MTK
+#   KERNEL/ROOTFS headers (see bootimg.mk) and flash_image erases the NAND
+#   blocks first.
+#
+# Selected by TARGET_RELEASETOOL_OTA_FROM_TARGET_SCRIPT in BoardConfig.mk.
+
+import os
+import sys
+
+releasetools = os.path.join(os.getcwd(), "build", "tools", "releasetools")
+sys.path.insert(0, releasetools)
+
+import common
+import edify_generator
+
+common.PARTITION_TYPES["ubifs"] = "UBI"
+
+_Mount = edify_generator.EdifyGenerator.Mount
+_FormatPartition = edify_generator.EdifyGenerator.FormatPartition
+_WriteRawImage = edify_generator.EdifyGenerator.WriteRawImage
+
+
+def _ubifs(self, mount_point):
+  fstab = self.info.get("fstab", None)
+  if fstab and mount_point in fstab and fstab[mount_point].fs_type == "ubifs":
+    return fstab[mount_point]
+  return None
+
+
+def _MountUbifs(self, p):
+  self.script.append('unmount("%s");' % (p.mount_point,))
+  self.script.append('assert(mount("ubifs", "UBI", "%s", "%s"));' %
+                     (p.device, p.mount_point))
+  self.mounts.add(p.mount_point)
+
+
+def Mount(self, mount_point):
+  p = _ubifs(self, mount_point)
+  if p is None:
+    return _Mount(self, mount_point)
+  if p.mount_point not in self.mounts:
+    _MountUbifs(self, p)
+
+
+def FormatPartition(self, partition):
+  p = _ubifs(self, partition)
+  if p is None:
+    return _FormatPartition(self, partition)
+  _MountUbifs(self, p)
+  self.script.append(
+      'assert(run_program("/sbin/sh", "-c", '
+      '"rm -rf %s/* %s/.[!.]*") == \"0\");' % (p.mount_point, p.mount_point))
+
+
+def WriteRawImage(self, mount_point, fn):
+  if mount_point != "/boot":
+    return _WriteRawImage(self, mount_point, fn)
+  self.script.append(
+      ('assert(package_extract_file("%s", "/tmp/boot.img"),\n'
+       '       run_program("/sbin/flash_image", "boot", "/tmp/boot.img") == \"0\",\n'
+       '       delete("/tmp/boot.img"));') % (fn,))
+
+
+edify_generator.EdifyGenerator.Mount = Mount
+edify_generator.EdifyGenerator.FormatPartition = FormatPartition
+edify_generator.EdifyGenerator.WriteRawImage = WriteRawImage
+
+script = os.path.join(releasetools, "ota_from_target_files")
+sys.argv[0] = script
+execfile(script, {"__name__": "__main__", "__file__": script})

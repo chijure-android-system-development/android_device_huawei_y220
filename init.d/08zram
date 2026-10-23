@@ -1,7 +1,0 @@
-#!/system/bin/sh
-# zram swap, as in stock init.project.rc: 192 MB, swappiness 100.
-# Stock uses tiny_mkswap/tiny_swapon; the CM7 busybox ones do the same.
-echo 100 > /proc/sys/vm/swappiness
-echo 201326592 > /sys/block/zram0/disksize
-mkswap /dev/block/zram0
-swapon /dev/block/zram0

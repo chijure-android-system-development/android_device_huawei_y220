@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- FMRadio opens /dev/fm (system:media 0660); stock maps this to gid media. -->
-<permissions>
-    <permission name="android.permission.ACCESS_MTK_MMHW" >
-        <group gid="media" />
-    </permission>
-</permissions>

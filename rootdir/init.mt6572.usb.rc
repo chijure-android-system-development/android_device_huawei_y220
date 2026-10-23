@@ -1,0 +1,24 @@
+# USB gadget functions CM's init.usb.rc has no rule for, from the stock
+# MTK init.usb.rc (Huawei VID 12D1, stock product IDs).
+#
+# With the microSD as primary storage, 4.2's UsbDeviceManager adds
+# mass_storage to the configuration. It first sets sys.usb.config=none
+# (gadget off) and then the new list; without a rule for that list the
+# gadget stayed off and the phone dropped off the bus.
+
+on property:sys.usb.config=mass_storage
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 12D1
+    write /sys/class/android_usb/android0/idProduct 1037
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    setprop sys.usb.state ${sys.usb.config}
+
+on property:sys.usb.config=mass_storage,adb
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 12D1
+    write /sys/class/android_usb/android0/idProduct 1038
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    start adbd
+    setprop sys.usb.state ${sys.usb.config}

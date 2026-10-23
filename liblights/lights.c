@@ -36,7 +36,7 @@ static int write_int(const char *path, int value)
 
     fd = open(path, O_RDWR);
     if (fd < 0) {
-        LOGE("open %s failed: %s", path, strerror(errno));
+        ALOGE("open %s failed: %s", path, strerror(errno));
         return -errno;
     }
     len = sprintf(buffer, "%d\n", value);
@@ -116,7 +116,9 @@ static struct hw_module_methods_t lights_module_methods = {
     .open = open_lights,
 };
 
-const struct hw_module_t HAL_MODULE_INFO_SYM = {
+/* Not const: 4.2's libhardware writes hmi->dso, and a const symbol lands in
+ * RELRO and faults (system_server died in the Lights Service). */
+struct hw_module_t HAL_MODULE_INFO_SYM = {
     .tag = HARDWARE_MODULE_TAG,
     .version_major = 1,
     .version_minor = 0,
