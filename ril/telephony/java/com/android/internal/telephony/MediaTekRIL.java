@@ -21,6 +21,7 @@ import static com.android.internal.telephony.RILConstants.*;
 import android.content.Context;
 import android.os.Message;
 import android.os.Parcel;
+import android.telephony.SignalStrength;
 
 /**
  * RIL for the MediaTek mtk-ril.so of the Y330-U01 4.2.2 (MT6572), which
@@ -33,6 +34,8 @@ import android.os.Parcel;
  * - Incoming calls: mtk-ril announces each one with
  *   UNSOL_INCOMING_CALL_INDICATION and holds it until the framework allows
  *   it with SET_CALL_INDICATION. Without that the phone never rings.
+ * - Signal strength: the MTK layout puts RSSI in quarter dBm where AOSP
+ *   expects the CDMA dBm.
  * - Call progress (+ECPI), the PS registration state and SIM hot plug come
  *   as MTK URCs; pass them on as the AOSP state changes that make the
  *   trackers poll.
@@ -142,6 +145,27 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
         p.writeInt(replacement);
         p.setDataPosition(dataPosition);
         super.processUnsolicited(p);
+    }
+
+    /*
+     * mtk-ril's RIL_SignalStrength starts with five GSM/WCDMA fields:
+     * ASU, bit error rate, then RSSI, RSCP and Ec/N0 in quarter dBm. AOSP
+     * reads the third one as the CDMA dBm, so the phone was taken for CDMA
+     * with no signal. Use the ASU when the modem gives one, else derive it
+     * from the RSSI (dBm = -113 + 2 * ASU).
+     */
+    @Override
+    protected Object responseSignalStrength(Parcel p) {
+        int asu = p.readInt();
+        int ber = p.readInt();
+        int rssiQdbm = p.readInt();
+
+        if ((asu <= 0 || asu > 31) && rssiQdbm < 0) {
+            asu = (rssiQdbm / 4 + 113) / 2;
+            if (asu < 0) asu = 0;
+            if (asu > 31) asu = 31;
+        }
+        return new SignalStrength(asu, ber, -1, -1, -1, -1, -1, true);
     }
 
     /* +EAIC: call id, number, type, call mode, sequence number. */
