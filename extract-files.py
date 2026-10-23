@@ -59,7 +59,9 @@ def main():
         to_path = os.path.join(OUT, dest)
         if not os.path.isdir(os.path.dirname(to_path)):
             os.makedirs(os.path.dirname(to_path))
-        shutil.copy2(from_path, to_path)
+        # New mtime: a blob swapped for an older file must still be newer
+        # than the copy in out/, or make keeps the old one.
+        shutil.copy(from_path, to_path)
         dests.append(dest)
 
     with open(BLOBS, "w") as f:
