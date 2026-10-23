@@ -8,6 +8,9 @@
  *   Only the main sensor, camera 0, is reported.
  * - Its scene modes include "hdr", so the Camera app offered HDR. The
  *   gc0329 has none: "hdr" is taken out of scene-mode-values.
+ * - It offers picture sizes up to 2560x1920, interpolated from the VGA
+ *   sensor. Only sizes within 640x480 are kept, and a larger picture-size
+ *   is lowered to 640x480.
  * - The JPEG of a capture comes as MTK_CAMERA_MSG_EXT_DATA (an MTK message
  *   that MTK's CameraClient unpacked). CM's CameraClient dropped it as an
  *   unwanted message and the app never got the picture. It is passed on
@@ -17,6 +20,7 @@
 #define LOG_TAG "camera_mtk"
 
 #include <dlfcn.h>
+#include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,12 +96,84 @@ static void drop_hdr(char *params)
     }
 }
 
+/* The gc0329 is VGA; bigger pictures are only interpolated. */
+#define MAX_PICTURE_W 640
+#define MAX_PICTURE_H 480
+
+static int size_fits(const char *size)
+{
+    int w, h;
+
+    return sscanf(size, "%dx%d", &w, &h) == 2 && w <= MAX_PICTURE_W && h <= MAX_PICTURE_H;
+}
+
+/* Value of "key=" in params, and where it ends. NULL if absent. */
+static char *find_value(char *params, const char *key, char **end)
+{
+    size_t len = strlen(key);
+    char *v = params;
+
+    while ((v = strstr(v, key)) != NULL) {
+        if ((v == params || v[-1] == ';') && v[len] == '=')
+            break;
+        v += len;
+    }
+    if (v == NULL)
+        return NULL;
+    v += len + 1;
+    *end = strchr(v, ';');
+    if (*end == NULL)
+        *end = v + strlen(v);
+    return v;
+}
+
+/* Keeps the picture sizes within the sensor and lowers picture-size. */
+static void limit_picture_size(char *params)
+{
+    char *list, *end, *item, *next, *out;
+    size_t len;
+
+    list = find_value(params, "picture-size-values", &end);
+    if (list != NULL) {
+        out = list;
+        for (item = list; item < end; item = next + 1) {
+            next = memchr(item, ',', end - item);
+            if (next == NULL)
+                next = end;
+            if (size_fits(item)) {
+                if (out != list)
+                    *out++ = ',';
+                memmove(out, item, next - item);
+                out += next - item;
+            }
+            if (next == end)
+                break;
+        }
+        if (out != list) {
+            memmove(out, end, strlen(end) + 1);
+        }
+    }
+
+    item = find_value(params, "picture-size", &end);
+    if (item != NULL && !size_fits(item)) {
+        char vga[16];
+
+        len = snprintf(vga, sizeof(vga), "%dx%d", MAX_PICTURE_W, MAX_PICTURE_H);
+        if (len <= (size_t) (end - item)) {
+            memcpy(item, vga, len);
+            memmove(item + len, end, strlen(end) + 1);
+        }
+    }
+}
+
 static char *wrap_get_parameters(struct camera_device *dev)
 {
     char *params = mtk_get_parameters(dev);
 
-    if (params != NULL)
+    if (params != NULL) {
         drop_hdr(params);
+        limit_picture_size(params);
+    }
     return params;
 }
 

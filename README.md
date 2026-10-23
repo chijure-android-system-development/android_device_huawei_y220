@@ -134,7 +134,9 @@ está en el device tree:
     HAL agrega siempre la TV analógica como segunda trasera y la app la
     abría: sin cuadros), saca `hdr` de `scene-mode-values` y pasa el JPEG
     que llega como `MTK_CAMERA_MSG_EXT_DATA` (el CameraClient de CM lo
-    descartaba) como `CAMERA_MSG_COMPRESSED_IMAGE`.
+    descartaba) como `CAMERA_MSG_COMPRESSED_IMAGE`. También deja solo los
+    tamaños de foto que entran en 640x480: el HAL ofrecía hasta 2560x1920
+    interpolados desde el sensor VGA.
   Gallery2 deshabilita su `CameraLauncher` si en el primer arranque no hay
   cámara; si quedó así: `pm enable com.android.gallery3d/com.android.camera.CameraLauncher`.
 - **Gráfica:** `gralloc.mt6572` + EGL Mali del Y330. Sin hwcomposer: el del
@@ -210,6 +212,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Audio | ✅ parlante y micrófono; llamadas sin confirmar |
 | Acelerómetro, vibración | ✅ |
 | Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
+| Llamadas | ❓ fallaron en una prueba sin logs; pendiente |
 | Video por hardware (OMX MTK) | ❌ solo software |
 
 Pruebas con QApp (`~/projects/qapp`): los reportes quedan en
