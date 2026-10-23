@@ -136,13 +136,21 @@ está en el device tree:
     que llega como `MTK_CAMERA_MSG_EXT_DATA` (el CameraClient de CM lo
     descartaba) como `CAMERA_MSG_COMPRESSED_IMAGE`. También deja solo los
     tamaños de foto que entran en 640x480: el HAL ofrecía hasta 2560x1920
-    interpolados desde el sensor VGA.
+    interpolados desde el sensor VGA. Además, `stop_preview` y `release`
+    esperan (hasta 5 s) a que termine una captura en curso: con disparo y
+    salida inmediata de la app, el hilo de captura del HAL quedó colgado
+    en `SingleShot::createSensorRawImg`, `stopPreview` lo esperó para
+    siempre (ANR) y la cámara siguió abierta hasta reiniciar mediaserver.
   Gallery2 deshabilita su `CameraLauncher` si en el primer arranque no hay
   cámara; si quedó así: `pm enable com.android.gallery3d/com.android.camera.CameraLauncher`.
 - **Gráfica:** `gralloc.mt6572` + EGL Mali del Y330. Sin hwcomposer: el del
   stock necesita el SurfaceFlinger de MTK.
 - **Media:** solo codecs de software (`configs/media_codecs.xml`). Los OMX de
-  MTK necesitan el stagefright de MTK.
+  MTK necesitan el stagefright de MTK: probado con los del Y330
+  (`libMtkOmxCore`/`libMtkOmxVdec`), el decoder AVC arranca pero entrega
+  un formato de color propio de MTK y el `OMXCodec` de CM aborta
+  mediaserver en el `CHECK` de `setVideoOutputFormat`. Haría falta parchear
+  libstagefright, así que se queda en software.
 - **CPU:** `TARGET_ARCH_VARIANT_CPU := cortex-a9`; el GCC 4.6 de 4.2 no
   conoce `cortex-a7`.
 
