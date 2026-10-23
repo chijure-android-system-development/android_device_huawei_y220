@@ -160,6 +160,17 @@ está en el device tree:
   Huawei desde la partición logo, arranca Android con pulsación larga de
   power y pide el servicio `shutdown` al desconectar el cargador. Está en
   la imagen boot, no en el recovery.
+- **Tethering USB:** reglas `rndis` y `rndis,adb` en `init.mt6572.usb.rc`
+  (sin ellas el gadget USB quedaba apagado). Necesita el kernel #96 con
+  IPv6: el `NetworkInterface` de libcore lee `/proc/net/if_inet6` y sin
+  ese archivo `enableNat()` fallaba antes de llegar a netd
+  (`TETHER_ERROR_ENABLE_NAT_ERROR`).
+- **Hotspot WiFi:** no funciona. `netd` manda `softap fwreload wlan0 AP`
+  y luego `hostapd` sobre `wlan0`, pero en el driver MT6582 el AP es otra
+  interfaz (`ap0`), que se crea con el ioctl privado `set_p2p_mode`, y
+  `/dev/wmtWifi` solo entiende `0` y `1`.
+- **Recovery:** `TARGET_NO_RECOVERY := true`. El teléfono usa TWRP y el zip
+  no escribe recovery; el recovery de CM ya no entraba con el kernel #96.
 - **CPU:** `TARGET_ARCH_VARIANT_CPU := cortex-a9`; el GCC 4.6 de 4.2 no
   conoce `cortex-a7`.
 
@@ -240,6 +251,8 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Cámara: cuelgue al disparar y salir de la app | ✅ protegido en el envoltorio |
 | Cámara (gc0329) | ✅ vista previa y foto; video sin probar |
 | Llamadas | ❓ fallaron en una prueba sin logs; pendiente |
+| Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
+| Hotspot WiFi | ❌ el driver necesita cambiar a modo AP (`ap0`) |
 | Video por hardware (OMX MTK) | ❌ solo software |
 
 Pruebas con QApp (`~/projects/qapp`): los reportes quedan en

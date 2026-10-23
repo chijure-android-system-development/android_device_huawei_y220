@@ -51,6 +51,9 @@ BOARD_USERDATAIMAGE_PARTITION_SIZE := 180617216
 BOARD_CACHEIMAGE_PARTITION_SIZE := 69206016
 BOARD_HAS_NO_MISC_PARTITION := true
 TARGET_RECOVERY_FSTAB := device/huawei/y220/recovery.fstab
+# The phone keeps TWRP and the OTA never writes recovery; CM's recovery
+# image no longer fits next to the IPv6 kernel (#96), so it is not built.
+TARGET_NO_RECOVERY := true
 
 # CM's init.rc mounts mtd@system/cache/userdata as yaffs2 in "on fs"; on
 # this NAND that erases the UBI partitions. rootdir/init.rc drops those.
