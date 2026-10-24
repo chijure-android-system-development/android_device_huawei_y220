@@ -18,6 +18,10 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     ubiattach_y220
 
+# Resets the modem after a modem exception (init.modem.rc).
+PRODUCT_PACKAGES += \
+    mdwatch_y220
+
 # Symbols the MTK blobs expect from MTK's liblog, libmedia, libui and
 # libcamera_client (LD_PRELOAD from init.mt6572.rc).
 PRODUCT_PACKAGES += \

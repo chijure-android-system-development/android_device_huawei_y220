@@ -81,6 +81,18 @@ está en el device tree:
 
 ## Subsistemas
 
+- **Recuperación del modem:** tras una excepción del modem, MTK pide el
+  reinicio desde el espacio de usuario: `gsm0710muxd` ve fallar el canal,
+  pone `mux.report.case` y arranca `muxreport-daemon`, que llama a
+  `CCCI_IOC_MD_RESET`; `ccci_mdinit` detiene `gsm0710muxd`/`rild`, reinicia
+  el modem y los vuelve a levantar. `gsm0710muxd` corre como radio y el init
+  de CM solo deja a root poner `mux.*` y arrancar `muxreport-daemon`, así
+  que el modem quedaba muerto hasta reiniciar el teléfono. `mdwatch_y220`
+  (`mdwatch/`, servicio `mdwatch` en `init.modem.rc`, system + grupo ccci)
+  lee `/sys/kernel/ccci/boot` cada 5 s mientras el AP está despierto y, si
+  ve `md1:3` (excepción) dos veces seguidas, pide el reinicio; máximo 3 por
+  cada 15 minutos. Probado forzando la excepción (`CCCI_IOC_FORCE_MD_ASSERT`):
+  red de vuelta en unos 40 s.
 - **RIL:** `MediaTekRIL` (`ril/`, en telephony-common por
   `BOARD_RIL_CLASS`). Numeración de URC del `librilmtk` del Y330 (tabla
   3000..3029; el GB usaba 3020 para el estado PS, este 3022). Acepta las
@@ -280,6 +292,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Cámara: cuelgue al disparar y salir de la app | ✅ protegido en el envoltorio |
 | Cámara (gc0329) | ✅ vista previa, foto y video (VGA MPEG-4 + AMR-WB) |
 | Llamadas | ✅ salientes y entrantes, colgar, espera; también con datos activos |
+| Recuperación del modem | ✅ `mdwatch_y220` lo reinicia tras una excepción (~40 s) |
 | Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
 | Hotspot WiFi | ✅ AP `wlan0` (kernel #98); cliente con DHCP/DNS/NAT, vuelve a WiFi normal |
 | Video por hardware (OMX MTK) | ❌ solo software |

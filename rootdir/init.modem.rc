@@ -52,3 +52,11 @@ service muxreport-daemon /system/bin/muxreport
     group radio cache inet misc 9996
     disabled
     oneshot
+
+# gsm0710muxd runs as radio, which CM's init does not let set mux.report.case
+# or start muxreport-daemon, so nothing asked for a reset after a modem
+# exception. mdwatch_y220 asks ccci for it; ccci_mdinit does the rest.
+service mdwatch /system/bin/mdwatch_y220
+    class core
+    user system
+    group 9996
