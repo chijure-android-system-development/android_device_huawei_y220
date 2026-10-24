@@ -123,9 +123,11 @@ está en el device tree:
   el módulo: se arma con `KMOD_PATH=mediatek/kernel/drivers/conn_soc/drv_wlan/mt6582/wlan ./build.sh y220`
   y el boot sigue con el kernel `#95`.
 - **Bluetooth:** Bluedroid con `libbt-vendor` sobre `libbluetoothdrv.so`.
-  La dirección es la de fábrica: la de `bt_config.xml`
-  (`50:9F:27:18:D5:2D`) es la misma de `BT_Addr` en el NVRAM, también en
-  el respaldo previo a CM10.1. Probado: emparejar, A2DP (música a
+  La dirección es la de fábrica (`BT_Addr` del NVRAM, `50:9F:27:18:D5:2D`):
+  el chip la toma por la librería de MTK y Bluedroid anota la que el
+  controlador informa (`bt_config.xml`, `bluetooth_address`). En una
+  instalación limpia Bluedroid igual guarda una dirección aleatoria en
+  `persist.service.bdroid.bdaddr`, que no se usa. Probado: emparejar, A2DP (música a
   audífonos) y llamadas por SCO con los audífonos (CVSD por `/dev/ebc`).
 - **Audio:** HAL primario del stock (`libaudio.primary.default.so`, con su
   nombre original) cargado por `libaudio_wrapper` (`audio.primary.mt6572`):
@@ -204,6 +206,9 @@ está en el device tree:
   Huawei desde la partición logo, arranca Android con pulsación larga de
   power y pide el servicio `shutdown` al desconectar el cargador. Está en
   la imagen boot, no en el recovery.
+- **USB por defecto:** `persist.sys.usb.config=mass_storage` (el build le
+  suma `adb` en userdebug). Con solo `adb`, apagar la depuración USB dejaba
+  `none` y en una instalación limpia el teléfono no aparecía en el USB.
 - **Tethering USB:** reglas `rndis` y `rndis,adb` en `init.mt6572.usb.rc`
   (sin ellas el gadget USB quedaba apagado). Necesita el kernel #96 con
   IPv6: el `NetworkInterface` de libcore lee `/proc/net/if_inet6` y sin

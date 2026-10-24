@@ -110,3 +110,9 @@ PRODUCT_PACKAGES += \
     SoundRecorder \
     SystemUI \
     Trebuchet
+
+# USB: mass storage by default (the build adds adb on userdebug). With
+# adb alone, turning USB debugging off left persist.sys.usb.config "none"
+# and the phone was not seen on USB at all.
+PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
+    persist.sys.usb.config=mass_storage
