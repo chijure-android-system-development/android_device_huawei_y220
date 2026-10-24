@@ -104,9 +104,10 @@ está en el device tree:
   el módulo: se arma con `KMOD_PATH=mediatek/kernel/drivers/conn_soc/drv_wlan/mt6582/wlan ./build.sh y220`
   y el boot sigue con el kernel `#95`.
 - **Bluetooth:** Bluedroid con `libbt-vendor` sobre `libbluetoothdrv.so`.
-  `com.android.bluetooth` no tiene el gid de nvram (9997; bionic no resuelve
-  gids numéricos en `platform.xml`), así que no lee `BT_Addr` y Bluedroid
-  usa su propia dirección (`persist.service.bdroid.bdaddr`).
+  La dirección es la de fábrica: la de `bt_config.xml`
+  (`50:9F:27:18:D5:2D`) es la misma de `BT_Addr` en el NVRAM, también en
+  el respaldo previo a CM10.1. Probado: emparejar, A2DP (música a
+  audífonos) y llamadas por SCO con los audífonos (CVSD por `/dev/ebc`).
 - **Audio:** HAL primario del stock (`libaudio.primary.default.so`, con su
   nombre original) cargado por `libaudio_wrapper` (`audio.primary.mt6572`):
   el módulo MTK se registra con id `libaudio` y el libhardware de CM pide
@@ -272,7 +273,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | microSD, USB (adb, almacenamiento) | ✅ |
 | WiFi (WPA2, DHCP, internet) | ✅ con el `wlan_mt6582.ko` arreglado |
 | SIM, red, datos móviles (Claro, EDGE) y SMS | ✅ |
-| Bluetooth | ✅ enciende y descubre; dirección de NVRAM no |
+| Bluetooth | ✅ emparejar, A2DP, llamadas por audífonos; dirección de fábrica |
 | Audio | ✅ parlante, micrófono y voz en llamadas |
 | Acelerómetro, vibración | ✅ |
 | Carga con el teléfono apagado | ✅ animación original de Huawei |
