@@ -39,6 +39,12 @@ import android.telephony.SignalStrength;
  * - Call progress (+ECPI), the PS registration state and SIM hot plug come
  *   as MTK URCs; pass them on as the AOSP state changes that make the
  *   trackers poll.
+ * - Radio power: mtk-ril boots the modem in flight mode (AT+EFUN=0) and
+ *   only turns it on for RADIO_POWER when its own radio state is off. A
+ *   GET_SIM_STATUS that sees the SIM ready first sets that state to "SIM
+ *   ready", RADIO_POWER then does nothing, and the phone had no network
+ *   after about half the boots. MTK's framework turns the radio on with
+ *   DUAL_SIM_MODE_SWITCH, which always sends AT+EFUN; do the same.
  *
  * The MTK request and URC numbers are the ones in the Y330 librilmtk.so
  * (its URC table runs 3000..3029). The GB mtk-ril of the Y220 numbered
@@ -48,6 +54,7 @@ import android.telephony.SignalStrength;
  */
 public class MediaTekRIL extends RIL implements CommandsInterface {
     static final int RIL_REQUEST_MTK_BASE = 2000;
+    static final int RIL_REQUEST_DUAL_SIM_MODE_SWITCH = RIL_REQUEST_MTK_BASE + 12;
     static final int RIL_REQUEST_SET_GPRS_CONNECT_TYPE = RIL_REQUEST_MTK_BASE + 16;
     static final int RIL_REQUEST_SET_GPRS_TRANSFER_TYPE = RIL_REQUEST_MTK_BASE + 17;
     static final int RIL_REQUEST_SET_CALL_INDICATION = RIL_REQUEST_MTK_BASE + 36;
@@ -63,6 +70,24 @@ public class MediaTekRIL extends RIL implements CommandsInterface {
 
     public MediaTekRIL(Context context, int networkMode, int cdmaSubscription) {
         super(context, networkMode, cdmaSubscription);
+    }
+
+    /* SIM 1 on; the Y220 has one SIM slot. */
+    static final int SIM_MODE_SIM1 = 1;
+
+    @Override
+    public void setRadioPower(boolean on, Message result) {
+        if (on) {
+            RILRequest rr = RILRequest.obtain(RIL_REQUEST_DUAL_SIM_MODE_SWITCH, null);
+
+            rr.mp.writeInt(1);
+            rr.mp.writeInt(SIM_MODE_SIM1);
+
+            if (RILJ_LOGD) riljLog(rr.serialString() + "> DUAL_SIM_MODE_SWITCH " + SIM_MODE_SIM1);
+
+            send(rr);
+        }
+        super.setRadioPower(on, result);
     }
 
     @Override

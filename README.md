@@ -93,6 +93,13 @@ está en el device tree:
   ve `md1:3` (excepción) dos veces seguidas, pide el reinicio; máximo 3 por
   cada 15 minutos. Probado forzando la excepción (`CCCI_IOC_FORCE_MD_ASSERT`):
   red de vuelta en unos 40 s.
+- **Radio al arrancar:** `mtk-ril` arranca el modem en modo vuelo
+  (`AT+EFUN=0`) y `RADIO_POWER on` solo manda `AT+EFUN=1` si su estado
+  interno es "apagado". Si antes llega un `GET_SIM_STATUS` con la SIM lista,
+  ese estado pasa a "SIM lista" y la radio no se enciende: en 5 de 10
+  arranques el teléfono quedó sin red. `MediaTekRIL.setRadioPower(true)`
+  manda antes `DUAL_SIM_MODE_SWITCH` (2012, modo 1), como el framework de
+  MTK, que siempre manda `AT+EFUN`. Probado: 10 de 10 arranques con red.
 - **RIL:** `MediaTekRIL` (`ril/`, en telephony-common por
   `BOARD_RIL_CLASS`). Numeración de URC del `librilmtk` del Y330 (tabla
   3000..3029; el GB usaba 3020 para el estado PS, este 3022). Acepta las
@@ -293,6 +300,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Cámara (gc0329) | ✅ vista previa, foto y video (VGA MPEG-4 + AMR-WB) |
 | Llamadas | ✅ salientes y entrantes, colgar, espera; también con datos activos |
 | USSD | ✅ consultas de Claro (`*777#`); `+CUSD: 4` es un código que la red no soporta |
+| Red al arrancar | ✅ 10/10 reinicios (antes 5/10, carrera de `mtk-ril`) |
 | Recuperación del modem | ✅ `mdwatch_y220` lo reinicia tras una excepción (~40 s) |
 | Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
 | Hotspot WiFi | ✅ AP `wlan0` (kernel #98); cliente con DHCP/DNS/NAT, vuelve a WiFi normal |
