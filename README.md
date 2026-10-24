@@ -292,6 +292,7 @@ Igual para `cache` (`mtd15`). UBIFS formatea el volumen nuevo al montarlo.
 | Cámara: cuelgue al disparar y salir de la app | ✅ protegido en el envoltorio |
 | Cámara (gc0329) | ✅ vista previa, foto y video (VGA MPEG-4 + AMR-WB) |
 | Llamadas | ✅ salientes y entrantes, colgar, espera; también con datos activos |
+| USSD | ✅ consultas de Claro (`*777#`); `+CUSD: 4` es un código que la red no soporta |
 | Recuperación del modem | ✅ `mdwatch_y220` lo reinicia tras una excepción (~40 s) |
 | Tethering USB | ✅ NAT por `ccmni0` (kernel #96 con IPv6) |
 | Hotspot WiFi | ✅ AP `wlan0` (kernel #98); cliente con DHCP/DNS/NAT, vuelve a WiFi normal |
